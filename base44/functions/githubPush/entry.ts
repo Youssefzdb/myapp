@@ -9,6 +9,14 @@ export default async function(req) {
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
+    // Credentials are server-managed; never accept a token or owner id from the caller.
+    const tokenStore = base44.asServiceRole.entities.Token;
+    const tokenQuery = { provider: 'github', owner_id: user.id };
+    if (body.disconnect) {
+      await base44.connectors.disconnectAppUser(CONNECTOR_ID);
+      await tokenStore.deleteMany(tokenQuery);
+      return Response.json({ connected: false, disconnected: true });
+    }
 
     let accessToken;
     try {
@@ -16,9 +24,13 @@ export default async function(req) {
     } catch (error) {
       const missing = /no active connection|not connected|connection not found/i.test(error.message || '');
       if (!missing) throw error;
+      await tokenStore.deleteMany(tokenQuery);
       return Response.json({ connected: false, code: 'github_not_connected', error: 'لم يكتمل ربط GitHub بهذا الحساب. اضغط ربط حساب GitHub لإكمال الربط.' }, { status: body.check ? 200 : 409 });
     }
-    if (!accessToken) return Response.json({ connected: false, code: 'github_reconnect_required', reconnectRequired: true, error: 'ربط GitHub غير صالح. أعد ربط الحساب لتجديد الإذن.' }, { status: body.check ? 200 : 409 });
+    if (!accessToken) {
+      await tokenStore.deleteMany(tokenQuery);
+      return Response.json({ connected: false, code: 'github_reconnect_required', reconnectRequired: true, error: 'ربط GitHub غير صالح. أعد ربط الحساب لتجديد الإذن.' }, { status: body.check ? 200 : 409 });
+    }
 
     const headers = {
       'Authorization': `Bearer ${accessToken}`,
@@ -32,6 +44,7 @@ export default async function(req) {
     if (!meRes.ok) {
       const provider = await meRes.json().catch(() => ({}));
       const reconnectRequired = meRes.status === 401;
+      if (reconnectRequired) await tokenStore.deleteMany(tokenQuery);
       const message = reconnectRequired
         ? 'رفض GitHub إذن الربط الحالي. اضغط إعادة ربط GitHub لتجديد الإذن.'
         : 'تعذّر التحقق من حساب GitHub حاليًا.';
@@ -42,7 +55,15 @@ export default async function(req) {
       }, { status: body.check ? 200 : (reconnectRequired ? 409 : 502) });
     }
     const me = await meRes.json();
-    if (body.check) return Response.json({ connected: true, login: me.login, avatar: me.avatar_url });
+    await tokenStore.upsert([{
+      ...tokenQuery,
+      access_token: accessToken,
+      token_type: 'Bearer',
+      scope: meRes.headers.get('x-oauth-scopes') || '',
+      external_id: String(me.id),
+      label: me.login,
+    }], { key: ['owner_id', 'provider'] });
+    if (body.check) return Response.json({ connected: true, login: me.login, avatar: me.avatar_url, tokenSaved: true });
 
     const files = body.files && typeof body.files === 'object' ? body.files : {};
     const fileCount = Object.keys(files).length;

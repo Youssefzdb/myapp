@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { base44 } from '@/api/base44Client';
-import { GITHUB_CONNECTOR_ID, checkGithub, pushProjectToGithub } from '@/lib/github';
+import { GITHUB_CONNECTOR_ID, checkGithub, disconnectGithub, pushProjectToGithub } from '@/lib/github';
 
 export default function GithubDialog({ files, autoPush, onAutoPushChange, onConnectedChange }) {
   const [open, setOpen] = useState(false);
@@ -97,7 +97,7 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
   const handleDisconnect = async () => {
     setError('');
     try {
-      await base44.connectors.disconnectAppUser(GITHUB_CONNECTOR_ID);
+      await disconnectGithub();
       setConnected(false);
       setLogin('');
       setAvatar('');

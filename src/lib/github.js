@@ -14,6 +14,12 @@ export async function checkGithub() {
   return data;
 }
 
+/** Disconnects the current user's account and removes its saved credential. */
+export async function disconnectGithub() {
+  const res = await base44.functions.invoke("githubPush", { disconnect: true });
+  if (!res?.data?.disconnected) throw new Error(res?.data?.error || 'تعذّر فصل الربط');
+}
+
 /** Pushes the full project files to the user's GitHub repo. */
 export async function pushProjectToGithub({ files, repo, private: isPrivate, commitMessage }) {
   const res = await base44.functions.invoke("githubPush", { files, repo, private: !!isPrivate, commitMessage });
