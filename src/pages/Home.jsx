@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles, Zap, Code2, Rocket, ArrowLeft, FolderOpen, Plus, LogIn, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSession, getProjects } from '@/lib/customAuth';
+import AnimatedBackground from '@/components/AnimatedBackground';
 
 const FEATURES = [
   { icon: Zap, title: 'بناء فوري', desc: 'ولّد تطبيقات React متعددة الملفات في ثوانٍ.' },
@@ -35,6 +36,7 @@ export default function Home() {
 
   return (
     <div dir="rtl" className="min-h-screen bg-background text-foreground">
+      <AnimatedBackground />
       {/* Nav */}
       <header className="sticky top-0 z-20 backdrop-blur bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
