@@ -88,6 +88,38 @@ function runtime(files, entry) {
 const safe = (v) =>
   JSON.stringify(v).replace(/<\/script/gi, "<\\/script").replace(/<!--/g, "<\\!--");
 
+// Intercept fetch('/api/...') inside the sandboxed iframe and route it to the
+// platform apiRuntime backend via postMessage to the parent. The parent replies
+// with backend-res. This makes the generated REST backend run live in preview.
+const BACKEND_SHIM = `
+window.__callBackend = function(method, path, body, query) {
+  return new Promise(function(resolve) {
+    var id = Math.random().toString(36).slice(2);
+    function h(e) { if (e.data && e.data.type === 'backend-res' && e.data.id === id) { window.removeEventListener('message', h); resolve(e.data.res); } }
+    window.addEventListener('message', h);
+    parent.postMessage({ type: 'backend-call', id: id, method: method, path: path, body: body, query: query }, '*');
+  });
+};
+var __origFetch = window.fetch;
+window.fetch = function(input, init) {
+  init = init || {};
+  var url = typeof input === 'string' ? input : (input && input.url) || '';
+  if (/^\\/api\\//.test(url)) {
+    var method = (init.method || (input && input.method) || 'GET').toUpperCase();
+    var body = null;
+    if (init.body != null) { try { body = JSON.parse(init.body); } catch (e) { body = String(init.body); } }
+    var path = url.split('?')[0];
+    var query = {};
+    var qs = url.split('?')[1];
+    if (qs) { qs.split('&').forEach(function(p) { var kv = p.split('='); if (kv[0]) query[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ''); }); }
+    return window.__callBackend(method, path, body, query).then(function(res) {
+      return new Response(JSON.stringify(res.body == null ? null : res.body), { status: res.status || 200, headers: { 'Content-Type': 'application/json' } });
+    });
+  }
+  return __origFetch.apply(this, arguments);
+};
+`;
+
 /** Builds a self-contained HTML document that compiles and renders a multi-file React project. */
 export function buildPreviewHtml(input, storage = {}) {
   const files = typeof input === "string" ? { [ENTRY]: input } : (input ?? {});
@@ -109,6 +141,7 @@ window.addEventListener('error',function(e){__showErr(e.error||e.message)});
 window.addEventListener('unhandledrejection',function(e){__showErr(e.reason)});
 document.addEventListener('click',function(e){if(e.defaultPrevented)return;var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href')||'';e.preventDefault();if(h.charAt(0)==='#'){if(h.length>1){var t=document.getElementById(decodeURIComponent(h.slice(1)));if(t)t.scrollIntoView({behavior:'smooth'})}else window.scrollTo({top:0,behavior:'smooth'});return}if(/^(https?:|mailto:|tel:)/i.test(h))window.open(h,'_blank','noopener');});
 document.addEventListener('submit',function(e){if(!e.defaultPrevented)e.preventDefault();});
+${BACKEND_SHIM}
 try{(${runtime.toString()})(${safe(files)},${safe(files[ENTRY] ? ENTRY : Object.keys(files)[0])});}catch(e){__showErr(e)}
 </script></body></html>`;
 }

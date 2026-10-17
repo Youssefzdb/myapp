@@ -28,10 +28,13 @@ export async function publishApp({ files, title, visibility, invites }) {
     ? Array.from(new Set((invites || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean)))
     : [];
 
+  const backend_spec = files?.["server/api.json"] ? String(files["server/api.json"]) : "";
+
   const record = await base44.entities.PublishedApp.create({
     title: (title || "تطبيق مُولّد").slice(0, 80),
     content_url,
     file_uri,
+    backend_spec,
     visibility: vis,
     invites: inviteList,
   });

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Loader2, Lock, Globe, Copy, Check, UserPlus, X, LogIn, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { startBackendBridge, parseSpecString } from '@/lib/backendBridge';
 
 export default function ViewApp() {
   const { id } = useParams();
@@ -17,6 +18,13 @@ export default function ViewApp() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteMsg, setInviteMsg] = useState('');
   const [copied, setCopied] = useState(false);
+  const appIdRef = useRef(null);
+  const specRef = useRef(null);
+
+  useEffect(() => startBackendBridge({
+    getAppId: () => appIdRef.current,
+    getSpec: () => specRef.current,
+  }), []);
 
   useEffect(() => {
     (async () => {
@@ -29,6 +37,8 @@ export default function ViewApp() {
         setUser(me);
         const rec = await base44.entities.PublishedApp.get(id);
         setRecord(rec);
+        appIdRef.current = rec.id;
+        specRef.current = parseSpecString(rec.backend_spec);
         setIsOwner(!!me && rec.created_by_id === me.id);
         if (rec.visibility === 'public' && rec.content_url) {
           setSrc(rec.content_url);

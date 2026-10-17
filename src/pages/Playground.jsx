@@ -10,6 +10,7 @@ import { runAgentLoop } from '@/lib/agentLoop';
 import { serializeFiles, extractFiles, ENTRY } from '@/lib/files';
 import { buildProjectFiles } from '@/lib/preview';
 import { pushProjectToGithub } from '@/lib/github';
+import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
 import { useAuth } from '@/lib/AuthContext';
 
 const LS_KEY = 'opencode_playground_v1';
@@ -118,9 +119,14 @@ export default function Playground() {
   const sessionRef = useRef(newSession());
   const abortRef = useRef(null);
   const lastUploadAt = useRef(0);
+  const [previewId, setPreviewId] = useState(null);
+  const filesRef = useRef({});
+  const previewIdRef = useRef(null);
 
   const current = versions.find((v) => v.n === activeV) ?? null;
   const files = liveFiles ?? current?.files ?? {};
+  filesRef.current = files;
+  previewIdRef.current = previewId;
 
   // Test models against the live API and keep only the ones that responded ok
   const testModels = async () => {
@@ -143,6 +149,27 @@ export default function Playground() {
     available.sort((a, b) => Number(b.id === 'beam-free') - Number(a.id === 'beam-free'));
     return available;
   };
+
+  // Stable backend namespace for the live preview REST runtime:
+  // authenticated users get a durable per-user store; anonymous get a per-session
+  // store so data persists across API calls within one preview session.
+  useEffect(() => {
+    (async () => {
+      let id = null;
+      try {
+        const a = await base44.auth.isAuthenticated();
+        if (a) { const me = await base44.auth.me(); if (me?.id) id = "preview_" + me.id; }
+      } catch { /* anonymous */ }
+      if (!id) id = "preview_" + sessionRef.current;
+      setPreviewId(id);
+    })();
+  }, []);
+
+  // Bridge fetch('/api/...') from the preview iframe to the platform apiRuntime.
+  useEffect(() => startBackendBridge({
+    getAppId: () => previewIdRef.current,
+    getSpec: () => parseBackendSpec(filesRef.current),
+  }), []);
 
   // Load + test models on mount — only live models appear
   useEffect(() => {
