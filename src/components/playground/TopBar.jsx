@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Sparkles, Plus, Github, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GithubDialog from './GithubDialog';
@@ -14,7 +15,7 @@ export const EFFORT_OPTIONS = [
 export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy, effort, onEffortChange, files, title, autoPush, onAutoPushChange, onGithubConnected }) {
   return (
     <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b bg-background">
-      <div className="flex items-center gap-2.5">
+      <Link to="/" className="flex items-center gap-2.5">
         <div className="w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
           <Sparkles className="w-4 h-4" />
         </div>
@@ -22,7 +23,7 @@ export default function TopBar({ model, models, onModelChange, onRefreshModels, 
           <h1 className="text-sm font-semibold">Vibe Studio</h1>
           <p className="text-[11px] text-muted-foreground mt-1 hidden sm:block">مولّد تطبيقات React بالذكاء الاصطناعي</p>
         </div>
-      </div>
+      </Link>
       <div className="flex items-center gap-2">
         <div className="hidden sm:flex items-center gap-1.5 rounded-lg border px-2.5 h-9 text-sm">
           <span className="text-muted-foreground text-xs">النموذج</span>

@@ -8,6 +8,7 @@ import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
 // Add page imports here
 import Playground from './pages/Playground';
+import Home from './pages/Home';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -40,7 +41,8 @@ const AuthenticatedApp = () => {
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/" element={<Playground />} />
+      <Route path="/" element={<Home />} />
+      <Route path="/playground" element={<Playground />} />
       <Route path="/view/:id" element={<ViewApp />} />
       <Route path="/github/callback" element={<GithubCallback />} />
       <Route path="*" element={<PageNotFound />} />

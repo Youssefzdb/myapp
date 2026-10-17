@@ -12,6 +12,7 @@ import { buildProjectFiles } from '@/lib/preview';
 import { pushProjectToGithub } from '@/lib/github';
 import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
 import { useAuth } from '@/lib/AuthContext';
+import { getSession, addProject } from '@/lib/customAuth';
 
 const LS_KEY = 'opencode_playground_v1';
 const loadLocal = () => {
@@ -163,6 +164,31 @@ export default function Playground() {
       if (!id) id = "preview_" + sessionRef.current;
       setPreviewId(id);
     })();
+  }, []);
+
+  // Load a project selected from the Home page (stored briefly in sessionStorage)
+  useEffect(() => {
+    const raw = sessionStorage.getItem('vibe_load_project');
+    if (!raw) return;
+    sessionStorage.removeItem('vibe_load_project');
+    try {
+      const p = JSON.parse(raw);
+      if (!p?.code_uri) return;
+      setLoadingSession(true);
+      fetchCodeUri(p.code_uri).then((txt) => {
+        const files = extractFiles(txt);
+        if (files && Object.keys(files).length) {
+          setVersions([{ n: 1, files, prompt: p.title || '' }]);
+          setActiveV(1);
+          setMessages([
+            WELCOME,
+            { id: uid(), role: 'assistant', text: `تم تحميل مشروع: ${p.title || ''}`, reasoning: '', tools: [], live: null, error: false, partial: false },
+          ]);
+          if (files[ENTRY] && /export\s+default\s/.test(files[ENTRY])) { setActiveFile(ENTRY); setView('preview'); }
+        }
+        setLoadingSession(false);
+      }).catch(() => setLoadingSession(false));
+    } catch { /* ignore */ }
   }, []);
 
   // Bridge fetch('/api/...') from the preview iframe to the platform apiRuntime.
@@ -361,6 +387,14 @@ export default function Playground() {
           tool_calls: toolsAccum,
           status: 'done',
         });
+      }
+
+      // Save the project to the signed-in user's private list (each user sees only their own)
+      if (result.changed && Object.keys(result.files).length && getSession()) {
+        try {
+          const saveUri = await uploadCodePrivate(result.files);
+          if (saveUri) await addProject({ title: prompt.slice(0, 60), prompt, code_uri: saveUri });
+        } catch { /* best-effort */ }
       }
 
       // Auto-push to the user's GitHub if enabled and connected

@@ -14,6 +14,31 @@
     "github_token": {
       "type": "string",
       "description": "\u0631\u0645\u0632 GitHub PAT \u0627\u0644\u062e\u0627\u0635 \u0628\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645"
+    },
+    "projects": {
+      "type": "array",
+      "description": "\u0645\u0634\u0627\u0631\u064a\u0639 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u062e\u0627\u0635\u0629 (\u0643\u0644 \u0645\u0633\u062a\u062e\u062f\u0645 \u064a\u0631\u0649 \u0645\u0634\u0627\u0631\u064a\u0639\u0647 \u0641\u0642\u0637)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "code_uri": {
+            "type": "string"
+          },
+          "created_date": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
     }
   },
   "required": [
