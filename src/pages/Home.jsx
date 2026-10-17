@@ -35,8 +35,9 @@ export default function Home() {
   };
 
   return (
-    <div dir="rtl" className="min-h-screen text-foreground">
+    <div dir="rtl" className="relative isolate min-h-screen bg-background text-foreground">
       <AnimatedBackground />
+      <div className="relative z-10 min-h-screen">
       {/* Nav */}
       <header className="sticky top-0 z-20 backdrop-blur bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -68,8 +69,6 @@ export default function Home() {
 
       {/* Hero */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-bl from-primary/10 via-transparent to-primary/5" />
-        <div className="absolute -top-24 right-0 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
         <div className="relative max-w-6xl mx-auto px-4 pt-20 pb-16 text-center">
           <div className="inline-flex items-center gap-2 rounded-full border bg-background/60 px-3.5 py-1.5 text-xs text-muted-foreground mb-6">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -161,6 +160,7 @@ export default function Home() {
           <span>© {new Date().getFullYear()} · Opencode Free</span>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

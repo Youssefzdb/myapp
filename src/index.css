@@ -90,3 +90,59 @@
     @apply bg-background text-foreground font-body;
   }
 }
+
+/* Home-only animated backdrop; content occupies a separate, higher layer. */
+.home-background-orb {
+  position: absolute;
+  width: max(70vw, 36rem);
+  height: max(70vw, 36rem);
+  border-radius: 50%;
+  filter: blur(20px);
+  will-change: transform;
+  animation: home-orb-drift 9s ease-in-out infinite alternate;
+}
+
+.home-background-orb-coral {
+  top: -35%;
+  right: -25%;
+  background: radial-gradient(circle, hsl(var(--chart-1) / 0.55), hsl(var(--chart-1) / 0.18) 45%, transparent 70%);
+}
+
+.home-background-orb-teal {
+  top: 10%;
+  left: -30%;
+  background: radial-gradient(circle, hsl(var(--chart-2) / 0.5), hsl(var(--chart-2) / 0.15) 45%, transparent 70%);
+  animation-duration: 12s;
+  animation-delay: -4s;
+  animation-direction: alternate-reverse;
+}
+
+.home-background-orb-blue {
+  bottom: -40%;
+  right: -10%;
+  background: radial-gradient(circle, hsl(var(--chart-3) / 0.38), hsl(var(--chart-3) / 0.12) 45%, transparent 70%);
+  animation-duration: 11s;
+  animation-delay: -6s;
+}
+
+.home-background-grid {
+  background-image: linear-gradient(hsl(var(--foreground) / 0.06) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground) / 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+  animation: home-grid-drift 12s linear infinite;
+}
+
+@keyframes home-orb-drift {
+  from { transform: translate3d(-6vw, -3vh, 0) scale(0.9); }
+  to { transform: translate3d(18vw, 16vh, 0) scale(1.2); }
+}
+
+@keyframes home-grid-drift {
+  from { background-position: 0 0; }
+  to { background-position: 48px 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-background-orb, .home-background-grid { animation: none; }
+}
