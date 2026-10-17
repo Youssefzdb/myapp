@@ -8,6 +8,8 @@ import PreviewPanel from '@/components/playground/PreviewPanel';
 import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
 import { runAgentLoop } from '@/lib/agentLoop';
 import { serializeFiles, extractFiles, ENTRY } from '@/lib/files';
+import { buildProjectFiles } from '@/lib/preview';
+import { pushProjectToGithub } from '@/lib/github';
 import { useAuth } from '@/lib/AuthContext';
 
 const LS_KEY = 'opencode_playground_v1';
@@ -96,6 +98,8 @@ export default function Playground() {
   const [model, setModel] = useState(restored?.model ?? 'beam-free');
   const [effort, setEffort] = useState(restored?.effort ?? 'low');
   const [checking, setChecking] = useState(false);
+  const [autoPush, setAutoPush] = useState(restored?.autoPush ?? false);
+  const [ghConnected, setGhConnected] = useState(false);
   // chat
   const [messages, setMessages] = useState(restored?.messages?.length ? restored.messages : [WELCOME]);
   const [input, setInput] = useState('');
@@ -160,10 +164,10 @@ export default function Playground() {
   // Persist session to local storage so a refresh restores it (works without login)
   useEffect(() => {
     const t = setTimeout(() => {
-      saveLocal({ messages, versions: versions.slice(-6), activeV, model, effort, activeFile });
+      saveLocal({ messages, versions: versions.slice(-6), activeV, model, effort, activeFile, autoPush });
     }, 600);
     return () => clearTimeout(t);
-  }, [messages, versions, activeV, model, activeFile]);
+  }, [messages, versions, activeV, model, activeFile, autoPush]);
 
   const refreshModels = async () => {
     if (checking || busy) return;
@@ -331,6 +335,20 @@ export default function Playground() {
           status: 'done',
         });
       }
+
+      // Auto-push to the user's GitHub if enabled and connected
+      if (autoPush && ghConnected && result.changed && Object.keys(result.files).length) {
+        try {
+          const gh = await pushProjectToGithub({ files: buildProjectFiles(result.files), repo: 'vibe-app', private: false, commitMessage: 'chore: auto-push generated app' });
+          if (gh?.url) {
+            setMessages((ms) => ms.map((m) =>
+              m.id === aid ? { ...m, text: `${m.text}\n\nتم الرفع التلقائي إلى ${gh.url}` } : m
+            ));
+          }
+        } catch {
+          /* auto-push is best-effort; the user can push manually from the GitHub dialog */
+        }
+      }
     } catch (e) {
       if (ctrl.signal.aborted) {
         setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, live: null, text: m.text || 'تم الإلغاء.' } : m)));
@@ -380,7 +398,7 @@ export default function Playground() {
 
   return (
     <div className="h-screen flex flex-col">
-      <TopBar model={model} models={models} onModelChange={setModel} onRefreshModels={refreshModels} checking={checking} onNewSession={resetChat} busy={busy} effort={effort} onEffortChange={setEffort} />
+      <TopBar model={model} models={models} onModelChange={setModel} onRefreshModels={refreshModels} checking={checking} onNewSession={resetChat} busy={busy} effort={effort} onEffortChange={setEffort} files={files} autoPush={autoPush} onAutoPushChange={setAutoPush} onGithubConnected={setGhConnected} />
       <div className="hidden md:block flex-1 min-h-0">
         <PanelGroup direction="horizontal" className="h-full">
           <Panel defaultSize={28} minSize={18} maxSize={45}>

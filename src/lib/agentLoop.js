@@ -6,6 +6,7 @@
 import { streamChat } from "./opencode";
 import { base44 } from "@/api/base44Client";
 import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports, normalizePath, undefinedComponents, emptyFiles } from "./files";
+import { buildProjectFiles } from "./preview";
 
 export const AGENT_SYSTEM = `You are an autonomous senior React engineer working inside a virtual project file system. You build professional MULTI-FILE React + TypeScript + Tailwind apps (8-25 focused files: src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts).
 
@@ -32,6 +33,7 @@ replacement lines
 <action name="search_web" query="current top 5 project management tools and their pricing"/>
 <action name="fetch_website" url="https://example.com"/>
 <action name="check_project"/>
+<action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
 <action name="finish">1-3 sentence summary for the user</action>
 
 EXAMPLE of a correct first reply (do exactly this shape, with your own files):
@@ -55,6 +57,7 @@ Extra tools (the host executes them for real and returns results):
 - generate_image: create a real AI image from a prompt. Returns a public image URL — embed it directly in <img src="..."> or as a CSS background. Use for logos, hero art, product photos, avatars. Prefer specific, descriptive prompts. Do NOT use images.unsplash.com when you can generate a fitting custom image.
 - search_web: get up-to-date factual information from the web (names, prices, real product data) to make mock data realistic. Returns concise text. Use sparingly for real-world facts only.
 - fetch_website: fetch the text content of a public URL (use when the user gives a link to base the app on, or to pull real copy/data). Returns extracted text.
+- push_github: push the current project to the user's connected GitHub repo (creates the repo if needed and commits all files). Optional attrs: repo (default "vibe-app"), private ("true"/"false"), message. Use it when the user asks to push/upload to GitHub, or automatically once the app is complete and working if they asked for auto-push. Returns the repo URL.
 Use these tools when they genuinely improve the result; don't call them for trivial apps.
 
 Rules:
@@ -273,6 +276,16 @@ export async function runAgentLoop(opts) {
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
+        } else if (call.name === "push_github") {
+          const repo = String(call.args.repo || "vibe-app").trim().replace(/\s+/g, "-").slice(0, 60) || "vibe-app";
+          const isPrivate = String(call.args.private || "false").toLowerCase() === "true";
+          const commitMessage = String(call.args.message || call.body || "chore: push generated app").trim().slice(0, 200);
+          const projectFiles = buildProjectFiles(files);
+          const resp = await base44.functions.invoke("githubPush", { files: projectFiles, repo, private: isPrivate, commitMessage });
+          const d = resp?.data;
+          if (!d || d.error) throw new Error(d?.error || "push failed");
+          output = `Pushed to ${d.url} (commit ${d.commitSha}, ${d.files} files)`;
+          tc.url = d.url;
         } else if (call.name === "generate_image") {
           const imgPrompt = String(call.args.prompt || call.body || "").trim();
           if (!imgPrompt) throw new Error("generate_image requires a prompt");

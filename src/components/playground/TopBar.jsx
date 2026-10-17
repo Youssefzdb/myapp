@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, Plus, Github, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import GithubDialog from './GithubDialog';
 
 export const EFFORT_OPTIONS = [
   { id: "low", name: "سريع" },
@@ -8,7 +9,7 @@ export const EFFORT_OPTIONS = [
   { id: "high", name: "عميق" },
 ];
 
-export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy, effort, onEffortChange }) {
+export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy, effort, onEffortChange, files, autoPush, onAutoPushChange, onGithubConnected }) {
   return (
     <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b bg-background">
       <div className="flex items-center gap-2.5">
@@ -58,9 +59,7 @@ export default function TopBar({ model, models, onModelChange, onRefreshModels, 
         <Button variant="outline" size="sm" onClick={onNewSession} disabled={busy}>
           <Plus className="w-4 h-4 mr-1" />جديد
         </Button>
-        <a href="https://github.com/Youssefzdb/opencode-free" target="_blank" rel="noreferrer" className="hidden sm:block">
-          <Button variant="ghost" size="sm"><Github className="w-4 h-4" /></Button>
-        </a>
+        <GithubDialog files={files} autoPush={autoPush} onAutoPushChange={onAutoPushChange} onConnectedChange={onGithubConnected} />
       </div>
     </header>
   );
