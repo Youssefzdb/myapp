@@ -14,10 +14,14 @@ import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
 import { useAuth } from '@/lib/AuthContext';
 import { getSession, addProject } from '@/lib/customAuth';
 
-const LS_KEY = 'opencode_playground_v1';
+// Scope playground state per account so one user never sees another's draft.
+const lsKey = () => {
+  const s = getSession();
+  return s?.id ? `opencode_playground_v1_${s.id}` : 'opencode_playground_v1';
+};
 const loadLocal = () => {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(lsKey());
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -26,7 +30,7 @@ const loadLocal = () => {
 };
 const saveLocal = (data) => {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
+    localStorage.setItem(lsKey(), JSON.stringify(data));
   } catch {
     /* quota exceeded — ignore */
   }
@@ -433,7 +437,7 @@ export default function Playground() {
 
   const resetChat = () => {
     abortRef.current?.abort();
-    try { localStorage.removeItem(LS_KEY); } catch {}
+    try { localStorage.removeItem(lsKey()); } catch {}
     setSessionId(null);
     setMessages([WELCOME]);
     setVersions([]);
