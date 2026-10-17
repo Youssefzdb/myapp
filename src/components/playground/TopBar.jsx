@@ -2,6 +2,7 @@ import React from 'react';
 import { Sparkles, Plus, Github, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GithubDialog from './GithubDialog';
+import AccountButton from './AccountButton';
 
 export const EFFORT_OPTIONS = [
   { id: "low", name: "سريع" },
@@ -60,6 +61,7 @@ export default function TopBar({ model, models, onModelChange, onRefreshModels, 
           <Plus className="w-4 h-4 mr-1" />جديد
         </Button>
         <GithubDialog files={files} autoPush={autoPush} onAutoPushChange={onAutoPushChange} onConnectedChange={onGithubConnected} />
+        <AccountButton />
       </div>
     </header>
   );
