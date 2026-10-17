@@ -1,9 +1,19 @@
 import React, { useState } from 'react';
 import { Brain, ChevronLeft } from 'lucide-react';
 
+const MAX_LINES = 4;
+
 export default function ReasoningBox({ reasoning }) {
   const [open, setOpen] = useState(false);
   if (!reasoning) return null;
+
+  // Keep only the last few lines so the box never spirals into "over-thinking"
+  const allLines = reasoning.split('\n');
+  const start = Math.max(0, allLines.length - MAX_LINES);
+  const visibleLines = allLines.slice(start);
+  const visible = visibleLines.join('\n').trim();
+  const truncated = allLines.length > MAX_LINES;
+
   return (
     <div className="mt-3 rounded-lg border bg-muted/40 text-sm">
       <button
@@ -16,7 +26,10 @@ export default function ReasoningBox({ reasoning }) {
       </button>
       {open && (
         <div className="px-3 pb-3">
-          <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed text-xs">{reasoning}</p>
+          {truncated && (
+            <p className="text-muted-foreground/60 text-xs mb-1">… تفكير سابق</p>
+          )}
+          <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed text-xs">{visible}</p>
         </div>
       )}
     </div>
