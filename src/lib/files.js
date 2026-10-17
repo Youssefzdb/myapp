@@ -3,13 +3,17 @@
 export const ENTRY = "src/App.tsx";
 
 const PATH_RE = /^[\w@.-]+(?:\/[\w@.-]+)*\.(?:tsx|ts|jsx|js|css|json)$/;
+const SERVER_RE = /^server\/[\w@./-]+\.(?:js|ts|json|sql)$/;
+const ROOT_FILES = new Set([".env", ".env.example", ".gitignore", "README.md"]);
 
 export function normalizePath(raw) {
   let p = raw.trim().replace(/^["'`]|["'`]$/g, "").replace(/\\/g, "/");
   p = p.replace(/^\.?\//, "");
+  if (p.includes("..") || p.length > 160) return null;
+  if (ROOT_FILES.has(p)) return p;
+  if (p.startsWith("server/")) return SERVER_RE.test(p) ? p : null;
   if (!p.startsWith("src/")) p = `src/${p}`;
-  if (p.includes("..") || p.length > 160 || !PATH_RE.test(p)) return null;
-  return p;
+  return PATH_RE.test(p) ? p : null;
 }
 
 /**

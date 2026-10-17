@@ -113,11 +113,14 @@ try{(${runtime.toString()})(${safe(files)},${safe(files[ENTRY] ? ENTRY : Object.
 </script></body></html>`;
 }
 
+const NODE_BUILTINS = new Set(["fs","path","http","https","url","crypto","os","stream","util","buffer","events","child_process","net","tls","zlib","querystring","assert","timers","worker_threads","readline","dns","dgram","cluster","v8","perf_hooks"]);
+
 export function buildProjectFiles(input) {
   const files = typeof input === "string" ? { [ENTRY]: input } : input;
   const deps = { react: "^18.3.1", "react-dom": "^18.3.1" };
   for (const spec of Object.keys(buildImportMap(files).imports)) {
     const name = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
+    if (NODE_BUILTINS.has(name)) continue;
     if (!deps[name]) deps[name] = name === "lucide-react" ? "^0.460.0" : "latest";
   }
   return {
