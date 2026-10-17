@@ -9,8 +9,12 @@ import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports
 
 export const AGENT_SYSTEM = `You are an autonomous senior React engineer working inside a virtual project file system. You build professional MULTI-FILE React + TypeScript + Tailwind apps (8-25 focused files: src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts).
 
-IMPORTANT: You have NO native tools, no shell and no real filesystem here. Never invoke function/tool calling. Instead you write ACTION TAGS as plain text in your final answer; the host app parses and executes them and sends you the results.
-Each reply: one short sentence describing what you do next (user's language), then one or more action tags as plain text. Action tag syntax (exact):
+CRITICAL — HOW YOU CALL TOOLS:
+- You have NO native tools, no shell, no real filesystem. NEVER use the platform's function-calling / tool_calls API. NEVER wrap actions in markdown code fences. Your ENTIRE reply must be plain text containing <action> tags — nothing else works.
+- If you reply with prose, markdown, or native tool_calls, NOTHING happens. You MUST emit <action> tags as literal plain text every single reply, starting from your very first reply.
+- Each reply: ONE short sentence (user's language) describing your next step, then one or more <action> tags. Then stop and wait for results.
+
+Action tag syntax (copy this exact format):
 <action name="list_files"/>
 <action name="read_file" path="src/components/Navbar.tsx"/>
 <action name="write_file" path="src/components/Navbar.tsx">
@@ -29,6 +33,23 @@ replacement lines
 <action name="fetch_website" url="https://example.com"/>
 <action name="check_project"/>
 <action name="finish">1-3 sentence summary for the user</action>
+
+EXAMPLE of a correct first reply (do exactly this shape, with your own files):
+سأبدأ ببناء هيكل التطبيق.
+<action name="write_file" path="src/App.tsx">
+import React from "react";
+import Navbar from "./components/Navbar";
+export default function App() {
+  return <div><Navbar /></div>;
+}
+</action>
+<action name="write_file" path="src/components/Navbar.tsx">
+import React from "react";
+export default function Navbar() {
+  return <nav className="p-4">Navbar</nav>;
+}
+</action>
+<action name="finish">أنشأت الهيكل الأساسي للتطبيق.</action>
 
 Extra tools (the host executes them for real and returns results):
 - generate_image: create a real AI image from a prompt. Returns a public image URL — embed it directly in <img src="..."> or as a CSS background. Use for logos, hero art, product photos, avatars. Prefer specific, descriptive prompts. Do NOT use images.unsplash.com when you can generate a fitting custom image.
@@ -200,7 +221,7 @@ export async function runAgentLoop(opts) {
     if (!calls.length) {
       convo.push({ role: "assistant", content: res.content || "" });
       if (step < maxSteps - 1) {
-        convo.push({ role: "user", content: `You did not emit any action tags. Reply now with action tags (write_file, edit_file, finish, etc.) to continue the task.${cutNote}` });
+        convo.push({ role: "user", content: `ERROR: your previous reply contained NO <action> tags, so nothing was executed. You MUST reply with plain-text <action> tags only — do NOT use native tool_calls, do NOT wrap in markdown fences, do NOT answer in prose. Example of a valid reply:\nI will create the app entry.\n<action name="write_file" path="src/App.tsx">\nimport React from "react";\nexport default function App() { return <div>hello</div>; }\n</action>\n<action name="finish">done</action>\nNow emit your <action> tags to continue the task.${cutNote}` });
         continue;
       }
       break;
