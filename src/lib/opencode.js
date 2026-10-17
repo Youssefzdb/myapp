@@ -101,13 +101,13 @@ export async function sendChat(opts) {
     session: opts.session,
     model: opts.model,
     system: opts.system ?? SYSTEM_PROMPT,
-    reasoning_effort: "low",
+    reasoning_effort: opts.effort ?? "low",
   };
   const withHistory = {
     messages: [...opts.history, { role: "user", content: opts.prompt }],
     model: opts.model,
     system: opts.system ?? SYSTEM_PROMPT,
-    reasoning_effort: "low",
+    reasoning_effort: opts.effort ?? "low",
   };
   let body = sessionsBroken || opts.stateless ? withHistory : withSession;
   const wait = (ms) =>
@@ -156,7 +156,7 @@ export async function streamChat(opts) {
     messages: [...opts.history, { role: "user", content: opts.prompt }],
     model: opts.model,
     system: opts.system ?? SYSTEM_PROMPT,
-    reasoning_effort: "low",
+    reasoning_effort: opts.effort ?? "low",
     stream: true,
   });
   const wait = (ms) =>

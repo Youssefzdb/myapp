@@ -94,6 +94,7 @@ export default function Playground() {
     try { return loadConfirmedModels().models; } catch { return []; }
   });
   const [model, setModel] = useState(restored?.model ?? 'beam-free');
+  const [effort, setEffort] = useState(restored?.effort ?? 'low');
   const [checking, setChecking] = useState(false);
   // chat
   const [messages, setMessages] = useState(restored?.messages?.length ? restored.messages : [WELCOME]);
@@ -159,7 +160,7 @@ export default function Playground() {
   // Persist session to local storage so a refresh restores it (works without login)
   useEffect(() => {
     const t = setTimeout(() => {
-      saveLocal({ messages, versions: versions.slice(-6), activeV, model, activeFile });
+      saveLocal({ messages, versions: versions.slice(-6), activeV, model, effort, activeFile });
     }, 600);
     return () => clearTimeout(t);
   }, [messages, versions, activeV, model, activeFile]);
@@ -234,6 +235,7 @@ export default function Playground() {
         history,
         model,
         files: currentFiles,
+        effort,
         signal: ctrl.signal,
         onEvent: (ev) => {
           if (ev.type === 'status') {
@@ -378,8 +380,7 @@ export default function Playground() {
 
   return (
     <div className="h-screen flex flex-col">
-      <TopBar model={model} models={models} onModelChange={setModel} onRefreshModels={refreshModels} checking={checking} onNewSession={resetChat} busy={busy} />
-
+      <TopBar model={model} models={models} onModelChange={setModel} onRefreshModels={refreshModels} checking={checking} onNewSession={resetChat} busy={busy} effort={effort} onEffortChange={setEffort} />
       <div className="hidden md:block flex-1 min-h-0">
         <PanelGroup direction="horizontal" className="h-full">
           <Panel defaultSize={28} minSize={18} maxSize={45}>

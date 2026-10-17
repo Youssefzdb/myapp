@@ -2,7 +2,13 @@ import React from 'react';
 import { Sparkles, Plus, Github, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy }) {
+export const EFFORT_OPTIONS = [
+  { id: "low", name: "سريع" },
+  { id: "medium", name: "متوسط" },
+  { id: "high", name: "عميق" },
+];
+
+export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy, effort, onEffortChange }) {
   return (
     <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b bg-background">
       <div className="flex items-center gap-2.5">
@@ -36,6 +42,18 @@ export default function TopBar({ model, models, onModelChange, onRefreshModels, 
           >
             {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           </button>
+        </div>
+        <div className="flex items-center gap-1.5 rounded-lg border px-2.5 h-9 text-sm">
+          <span className="text-muted-foreground text-xs">التفكير</span>
+          <select
+            value={effort}
+            onChange={(e) => onEffortChange(e.target.value)}
+            className="bg-transparent outline-none font-medium text-sm cursor-pointer"
+          >
+            {EFFORT_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
         </div>
         <Button variant="outline" size="sm" onClick={onNewSession} disabled={busy}>
           <Plus className="w-4 h-4 mr-1" />جديد

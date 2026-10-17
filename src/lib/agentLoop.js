@@ -175,6 +175,7 @@ export async function runAgentLoop(opts) {
         history: convo.slice(0, -1),
         model: opts.model,
         signal: opts.signal,
+        effort: opts.effort,
         system: AGENT_SYSTEM,
         onReasoning: (text) => { clearStatus(); opts.onEvent({ type: "thought", id: reasoningId, text }); },
         onAnswer: (text) => {
