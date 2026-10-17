@@ -87,7 +87,8 @@ Extra tools (the host executes them for real and returns results):
 - search_web: get up-to-date factual information from the web (names, prices, real product data) to make mock data realistic. Returns concise text. Use sparingly for real-world facts only.
 - fetch_website: fetch the text content of a public URL (use when the user gives a link to base the app on, or to pull real copy/data). Returns extracted text.
 - push_github: push the current project to the user's connected GitHub repo (creates the repo if needed and commits all files). Optional attrs: repo (default "vibe-app"), private ("true"/"false"), message. Use it when the user asks to push/upload to GitHub, or automatically once the app is complete and working if they asked for auto-push. Returns the repo URL.
-Use these tools when they genuinely improve the result; don't call them for trivial apps.
+- skill_list: browse and load building skills from the platform's skill library. With no query (skill_list), returns the catalog (name + category + description). With query="<term>" (e.g. <action name="skill_list" query="charts"/>), returns the FULL instructions of matching skills (ui, data, auth, integration, backend, advanced). Load the relevant skill BEFORE building a feature you are unsure about — e.g. load "charts" before a dashboard, "forms" before a form, "auth_flow" before login. Do NOT load every skill; only what the current task needs.
+  Use these tools when they genuinely improve the result; don't call them for trivial apps.
 
 Rules:
 - You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
@@ -335,6 +336,18 @@ export async function runAgentLoop(opts) {
           if (!u) throw new Error("fetch_website requires a url");
           const resp = await base44.functions.invoke("fetchPage", { url: u });
           output = String(resp?.data?.content || "").trim() || "Empty page.";
+        } else if (call.name === "skill_list") {
+          const q = String(call.args.query || call.body || "").trim();
+          const resp = await base44.functions.invoke("skillList", { query: q });
+          const d = resp?.data;
+          if (!d || d.error) throw new Error(d?.error || "skill list failed");
+          if (!q) {
+            output = `Skill catalog (${d.count} skills). Call skill_list again with query="<term>" to load a skill's full instructions:\n` +
+              d.skills.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
+          } else {
+            output = `Skills matching "${q}" (${d.count}):\n` +
+              d.skills.map((s) => `=== ${s.title} (${s.name}, ${s.category}) ===\n${s.description}\n${s.content}`).join("\n\n");
+          }
         } else if (call.name === "finish") {
           output = call.body || "Done.";
           toolResults.push(`finish: ${output}`);
