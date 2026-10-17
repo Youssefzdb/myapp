@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Sparkles, Zap, Code2, Rocket, ArrowLeft, FolderOpen, Plus, LogIn, Clock } from 'lucide-react';
+import { Sparkles, Zap, Code2, Rocket, ArrowLeft, FolderOpen, Plus, LogIn, LogOut, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getSession, getProjects } from '@/lib/customAuth';
+import { getSession, getProjects, logoutAccount } from '@/lib/customAuth';
 import AnimatedBackground from '@/components/AnimatedBackground';
 
 const FEATURES = [
@@ -35,7 +35,7 @@ export default function Home() {
   };
 
   return (
-    <div dir="rtl" className="min-h-screen bg-background text-foreground">
+    <div dir="rtl" className="min-h-screen text-foreground">
       <AnimatedBackground />
       {/* Nav */}
       <header className="sticky top-0 z-20 backdrop-blur bg-background/80 border-b">
@@ -48,9 +48,14 @@ export default function Home() {
           </Link>
           <div className="flex items-center gap-2">
             {session ? (
-              <Button asChild size="sm">
-                <Link to="/playground"><Plus className="w-4 h-4 ml-1" />مشروع جديد</Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button asChild size="sm">
+                  <Link to="/playground"><Plus className="w-4 h-4 ml-1" />مشروع جديد</Link>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => { logoutAccount(); setSession(null); setProjects([]); }}>
+                  <LogOut className="w-4 h-4 ml-1" />خروج
+                </Button>
+              </div>
             ) : (
               <>
                 <Button asChild variant="ghost" size="sm"><Link to="/login">دخول</Link></Button>
