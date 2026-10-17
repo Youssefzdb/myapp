@@ -8,6 +8,25 @@ import PreviewPanel from '@/components/playground/PreviewPanel';
 import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
 import { runAgentLoop } from '@/lib/agentLoop';
 import { serializeFiles, extractFiles, ENTRY } from '@/lib/files';
+import { useAuth } from '@/lib/AuthContext';
+
+const LS_KEY = 'opencode_playground_v1';
+const loadLocal = () => {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+const saveLocal = (data) => {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  } catch {
+    /* quota exceeded — ignore */
+  }
+};
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const newSession = () => 'ses_' + uid() + Date.now().toString(36);
@@ -68,27 +87,29 @@ const fetchCodeUri = async (file_uri) => {
 };
 
 export default function Playground() {
+  const { isAuthenticated } = useAuth();
+  const [restored] = useState(() => loadLocal());
   // models — start from confirmed snapshot so the UI is usable immediately
   const [models, setModels] = useState(() => {
     try { return loadConfirmedModels().models; } catch { return []; }
   });
-  const [model, setModel] = useState('beam-free');
+  const [model, setModel] = useState(restored?.model ?? 'beam-free');
   const [checking, setChecking] = useState(false);
   // chat
-  const [messages, setMessages] = useState([WELCOME]);
+  const [messages, setMessages] = useState(restored?.messages?.length ? restored.messages : [WELCOME]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   // project
-  const [versions, setVersions] = useState([]);
-  const [activeV, setActiveV] = useState(null);
+  const [versions, setVersions] = useState(restored?.versions ?? []);
+  const [activeV, setActiveV] = useState(restored?.activeV ?? null);
   const [view, setView] = useState('preview');
   const [device, setDevice] = useState('desktop');
-  const [activeFile, setActiveFile] = useState(ENTRY);
+  const [activeFile, setActiveFile] = useState(restored?.activeFile ?? ENTRY);
   const [mobileTab, setMobileTab] = useState('chat');
   const [liveFiles, setLiveFiles] = useState(null);
   // session persistence
   const [sessionId, setSessionId] = useState(null);
-  const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingSession, setLoadingSession] = useState(false);
   const sessionRef = useRef(newSession());
   const abortRef = useRef(null);
   const lastUploadAt = useRef(0);
@@ -135,51 +156,13 @@ export default function Playground() {
     })();
   }, []);
 
-  // Load last session
+  // Persist session to local storage so a refresh restores it (works without login)
   useEffect(() => {
-    (async () => {
-      try {
-        const { items: sessions } = await base44.entities.Session.filter(
-          { created_by_id: (await base44.auth.me()).id },
-          { sort: '-created_date', limit: 1 }
-        );
-        if (sessions.length) {
-          const s = sessions[0];
-          setSessionId(s.id);
-          if (s.model) setModel(s.model);
-          const { items: msgs } = await base44.entities.Message.filter(
-            { session_id: s.id },
-            { sort: 'created_date', limit: 200 }
-          );
-          const mapped = msgs.map(toFront).filter((m) => m.text || m.reasoning);
-          if (mapped.length) setMessages(mapped);
-          // Reconstruct saved versions from the database (code persisted as a private file uri)
-          const restored = [];
-          for (const m of msgs) {
-            if (m.role === 'assistant' && m.version) {
-              let raw = m.code || '';
-              if (!raw && m.code_uri) raw = await fetchCodeUri(m.code_uri);
-              if (raw && /```/.test(raw)) {
-                const { files } = extractFiles(raw);
-                if (files && Object.keys(files).length) {
-                  restored.push({ n: m.version, files, prompt: m.content || '' });
-                }
-              }
-            }
-          }
-          if (restored.length) {
-            restored.sort((a, b) => a.n - b.n);
-            setVersions(restored);
-            setActiveV(restored[restored.length - 1].n);
-          }
-        }
-      } catch {
-        /* keep welcome */
-      } finally {
-        setLoadingSession(false);
-      }
-    })();
-  }, []);
+    const t = setTimeout(() => {
+      saveLocal({ messages, versions: versions.slice(-6), activeV, model, activeFile });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [messages, versions, activeV, model, activeFile]);
 
   const refreshModels = async () => {
     if (checking || busy) return;
@@ -213,27 +196,29 @@ export default function Playground() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    const persist = isAuthenticated;
     try {
-      // Persist user message
+      // Persist user message (only when logged in; otherwise local storage keeps state)
       let sid = sessionId;
-      if (!sid) {
-        const s = await base44.entities.Session.create({ title: prompt.slice(0, 40), model });
-        sid = s.id;
-        setSessionId(sid);
+      let asstDbId = null;
+      if (persist) {
+        if (!sid) {
+          const s = await base44.entities.Session.create({ title: prompt.slice(0, 40), model });
+          sid = s.id;
+          setSessionId(sid);
+        }
+        await base44.entities.Message.create({ session_id: sid, role: 'user', content: prompt });
+        const asstRecord = await base44.entities.Message.create({
+          session_id: sid,
+          role: 'assistant',
+          content: '',
+          reasoning: '',
+          code: '',
+          version: null,
+          status: 'running',
+        });
+        asstDbId = asstRecord.id;
       }
-      await base44.entities.Message.create({ session_id: sid, role: 'user', content: prompt });
-
-      // Create the assistant record early so streaming code can be persisted live
-      const asstRecord = await base44.entities.Message.create({
-        session_id: sid,
-        role: 'assistant',
-        content: '',
-        reasoning: '',
-        code: '',
-        version: null,
-        status: 'running',
-      });
-      const asstDbId = asstRecord.id;
       let lastVersion = null;
       const toolsAccum = [];
 
@@ -284,18 +269,20 @@ export default function Playground() {
             if (Object.keys(ev.files).length) {
               const n = (versions[versions.length - 1]?.n ?? 0) + 1;
               lastVersion = n;
-              const now = Date.now();
-              if (now - lastUploadAt.current > 3000) {
-                lastUploadAt.current = now;
-                uploadCodePrivate(ev.files)
-                  .then((uri) =>
-                    uri
-                      ? base44.entities.Message
-                          .update(asstDbId, { code_uri: uri, version: n, status: 'streaming' })
-                          .catch(() => {})
-                      : null
-                  )
-                  .catch(() => {});
+              if (persist && asstDbId) {
+                const now = Date.now();
+                if (now - lastUploadAt.current > 3000) {
+                  lastUploadAt.current = now;
+                  uploadCodePrivate(ev.files)
+                    .then((uri) =>
+                      uri
+                        ? base44.entities.Message
+                            .update(asstDbId, { code_uri: uri, version: n, status: 'streaming' })
+                            .catch(() => {})
+                        : null
+                    )
+                    .catch(() => {});
+                }
               }
             }
           }
@@ -329,17 +316,19 @@ export default function Playground() {
       );
 
       // Final update: upload the final project to private storage and store its uri
-      let codeUri = null;
-      if (result.changed) {
-        try { codeUri = await uploadCodePrivate(result.files); } catch {}
+      if (persist && asstDbId) {
+        let codeUri = null;
+        if (result.changed) {
+          try { codeUri = await uploadCodePrivate(result.files); } catch {}
+        }
+        await base44.entities.Message.update(asstDbId, {
+          content: result.summary || 'تم بناء التطبيق',
+          code_uri: codeUri ?? undefined,
+          version: versionBump ?? lastVersion,
+          tool_calls: toolsAccum,
+          status: 'done',
+        });
       }
-      await base44.entities.Message.update(asstDbId, {
-        content: result.summary || 'تم بناء التطبيق',
-        code_uri: codeUri ?? undefined,
-        version: versionBump ?? lastVersion,
-        tool_calls: toolsAccum,
-        status: 'done',
-      });
     } catch (e) {
       if (ctrl.signal.aborted) {
         setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, live: null, text: m.text || 'تم الإلغاء.' } : m)));
@@ -363,6 +352,7 @@ export default function Playground() {
 
   const resetChat = () => {
     abortRef.current?.abort();
+    try { localStorage.removeItem(LS_KEY); } catch {}
     setSessionId(null);
     setMessages([WELCOME]);
     setVersions([]);
