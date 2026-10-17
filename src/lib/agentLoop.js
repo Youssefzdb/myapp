@@ -142,7 +142,7 @@ export function checkProject(files) {
   for (const m of duplicateExports(files)) problems.push(`Duplicate export: ${m}`);
   for (const m of emptyFiles(files)) problems.push(`Empty file: ${m}`);
   for (const [p, c] of Object.entries(files))
-    if (/\/\/\s*\.\.\.|TODO|\{\/\*\s*\.\.\./.test(c)) problems.push(`${p} contains placeholder/TODO`);
+    if (typeof c === "string" && /\/\/\s*\.\.\.|TODO|\{\/\*\s*\.\.\./.test(c)) problems.push(`${p} contains placeholder/TODO`);
   return problems;
 }
 

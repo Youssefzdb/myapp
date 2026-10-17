@@ -13,6 +13,7 @@ export function buildImportMap(files) {
   const imports = { ...BASE_IMPORTS };
   const re = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"'./@][^"']*|@[^/"']+\/[^"']+)["']/g;
   for (const src of Object.values(files)) {
+    if (typeof src !== "string") continue;
     for (const m of src.matchAll(re)) {
       const spec = m[1];
       if (!spec || spec.startsWith("@/") || imports[spec]) continue;

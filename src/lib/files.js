@@ -64,6 +64,7 @@ export function missingImports(files) {
   const missing = [];
   const exts = ["", ".tsx", ".ts", ".jsx", ".js", "/index.tsx", "/index.ts"];
   for (const [path, src] of Object.entries(files)) {
+    if (typeof src !== "string") continue;
     for (const m of src.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)["']((?:\.{1,2}\/|@\/)[^"']+)["']/g)) {
       const spec = m[1];
       let base;
@@ -89,6 +90,7 @@ export function undefinedComponents(files) {
   const problems = [];
   const INTRINSICS = new Set(["Fragment", "React", "Suspense", "StrictMode"]);
   for (const [path, src] of Object.entries(files)) {
+    if (typeof src !== "string") continue;
     const declared = new Set();
     for (const m of src.matchAll(/\bfunction\s+([A-Z][\w$]*)/g)) declared.add(m[1]);
     for (const m of src.matchAll(/\bconst\s+([A-Z][\w$]*)\s*=/g)) declared.add(m[1]);
@@ -116,6 +118,7 @@ export function undefinedComponents(files) {
 export function duplicateExports(files) {
   const problems = [];
   for (const [path, src] of Object.entries(files)) {
+    if (typeof src !== "string") continue;
     const seen = {};
     const add = (n) => { seen[n] = (seen[n] || 0) + 1; };
     for (const m of src.matchAll(/\bexport\s+(?:const|let|var|function|class|async\s+function)\s+([A-Za-z_$][\w$]*)/g)) add(m[1]);
@@ -131,6 +134,7 @@ export function duplicateExports(files) {
 export function emptyFiles(files) {
   const problems = [];
   for (const [path, src] of Object.entries(files)) {
+    if (typeof src !== "string") continue;
     const t = src.trim();
     if (t.length < 8) problems.push(`${path} is empty or too short (${t.length} chars)`);
   }
@@ -158,6 +162,7 @@ export function exportMismatches(files) {
   };
   const namedExportsOf = (src) => {
     const names = new Set();
+    if (typeof src !== "string") return names;
     for (const m of src.matchAll(/\bexport\s+(?:const|let|var|function|class|async\s+function)\s+([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
     for (const m of src.matchAll(/\bexport\s*\{([^}]+)\}/g)) {
       for (const part of m[1].split(",")) {
@@ -168,6 +173,7 @@ export function exportMismatches(files) {
     return names;
   };
   for (const [path, src] of Object.entries(files)) {
+    if (typeof src !== "string") continue;
     for (const m of src.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*["']((?:\.{1,2}\/|@\/)[^"']+)["']/g)) {
       const target = resolve(path, m[2]);
       if (!target) continue;
