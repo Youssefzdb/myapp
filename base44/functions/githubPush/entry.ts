@@ -1,39 +1,19 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.52';
 
-const CONNECTOR_ID = "6ad3ec94025725ba68967b57";
-
 export default async function(req) {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-
     const body = await req.json().catch(() => ({}));
-    // Credentials are server-managed; never accept a token or owner id from the caller.
-    const tokenStore = base44.asServiceRole.entities.Token;
-    const tokenQuery = { provider: 'github', owner_id: user.id };
-    if (body.disconnect) {
-      await base44.connectors.disconnectAppUser(CONNECTOR_ID);
-      await tokenStore.deleteMany(tokenQuery);
-      return Response.json({ connected: false, disconnected: true });
-    }
-
-    let accessToken;
-    try {
-      ({ accessToken } = await base44.asServiceRole.connectors.getCurrentAppUserConnection(CONNECTOR_ID));
-    } catch (error) {
-      const missing = /no active connection|not connected|connection not found/i.test(error.message || '');
-      if (!missing) throw error;
-      await tokenStore.deleteMany(tokenQuery);
-      return Response.json({ connected: false, code: 'github_not_connected', error: 'لم يكتمل ربط GitHub بهذا الحساب. اضغط ربط حساب GitHub لإكمال الربط.' }, { status: body.check ? 200 : 409 });
-    }
-    if (!accessToken) {
-      await tokenStore.deleteMany(tokenQuery);
-      return Response.json({ connected: false, code: 'github_reconnect_required', reconnectRequired: true, error: 'ربط GitHub غير صالح. أعد ربط الحساب لتجديد الإذن.' }, { status: body.check ? 200 : 409 });
+    const token = String(body.token || '').trim();
+    if (!token) {
+      return Response.json({
+        connected: false, code: 'github_not_connected',
+        error: 'لم يُربط GitHub بعد. أضف رمز PAT الخاص بك.',
+      }, { status: body.check ? 200 : 400 });
     }
 
     const headers = {
-      'Authorization': `Bearer ${accessToken}`,
+      'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github+json',
       'User-Agent': 'Vibe-Studio',
       'Content-Type': 'application/json',
@@ -42,28 +22,22 @@ export default async function(req) {
     const t = (ms) => AbortSignal.timeout(ms);
     const meRes = await fetch('https://api.github.com/user', { headers, signal: t(15000) });
     if (!meRes.ok) {
-      const provider = await meRes.json().catch(() => ({}));
-      const reconnectRequired = meRes.status === 401;
-      if (reconnectRequired) await tokenStore.deleteMany(tokenQuery);
-      const message = reconnectRequired
-        ? 'رفض GitHub إذن الربط الحالي. اضغط إعادة ربط GitHub لتجديد الإذن.'
+      const d = await meRes.json().catch(() => ({}));
+      const reconnect = meRes.status === 401;
+      const message = reconnect
+        ? 'رمز GitHub غير صالح أو منتهي. أنشئ رمزًا جديدًا.'
         : 'تعذّر التحقق من حساب GitHub حاليًا.';
       return Response.json({
-        connected: false, code: reconnectRequired ? 'github_reconnect_required' : 'github_verification_failed',
-        reconnectRequired, providerStatus: meRes.status,
-        error: `${message}${provider.message ? ` (${String(provider.message).slice(0, 200)})` : ''}`,
-      }, { status: body.check ? 200 : (reconnectRequired ? 409 : 502) });
+        connected: false,
+        code: reconnect ? 'github_reconnect_required' : 'github_verification_failed',
+        reconnectRequired: reconnect,
+        error: `${message}${d.message ? ` (${String(d.message).slice(0, 200)})` : ''}`,
+      }, { status: body.check ? 200 : (reconnect ? 401 : 502) });
     }
     const me = await meRes.json();
-    await tokenStore.upsert([{
-      ...tokenQuery,
-      access_token: accessToken,
-      token_type: 'Bearer',
-      scope: meRes.headers.get('x-oauth-scopes') || '',
-      external_id: String(me.id),
-      label: me.login,
-    }], { key: ['owner_id', 'provider'] });
-    if (body.check) return Response.json({ connected: true, login: me.login, avatar: me.avatar_url, tokenSaved: true });
+    if (body.check) {
+      return Response.json({ connected: true, login: me.login, avatar: me.avatar_url, scopes: meRes.headers.get('x-oauth-scopes') || '' });
+    }
 
     const files = body.files && typeof body.files === 'object' ? body.files : {};
     const fileCount = Object.keys(files).length;
@@ -74,7 +48,6 @@ export default async function(req) {
     const commitMessage = String(body.commitMessage || 'chore: push generated app').slice(0, 200);
     const owner = me.login;
 
-    // Ensure repo exists
     let defaultBranch = 'main';
     const checkRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, { headers, signal: t(15000) });
     if (checkRes.ok) {
@@ -97,7 +70,6 @@ export default async function(req) {
 
     const gitApi = (path, init) => fetch(`https://api.github.com/repos/${owner}/${repoName}/git/${path}`, { ...init, headers, signal: t(30000) });
 
-    // Current branch state
     let parentSha = null;
     let baseTreeSha = null;
     const refRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/refs/heads/${defaultBranch}`, { headers, signal: t(15000) });
@@ -111,7 +83,6 @@ export default async function(req) {
       }
     }
 
-    // Create blobs (batched for speed)
     const paths = Object.keys(files);
     const blobResults = await Promise.all(paths.map(async (path) => {
       const r = await gitApi('blobs', { method: 'POST', body: JSON.stringify({ content: String(files[path] ?? ''), encoding: 'utf-8' }) });
@@ -120,8 +91,6 @@ export default async function(req) {
     }));
 
     const entries = blobResults.map(({ path, sha }) => ({ path, mode: '100644', type: 'blob', sha }));
-
-    // Create tree
     const treeBody = { tree: entries };
     if (baseTreeSha) treeBody.base_tree = baseTreeSha;
     const treeRes = await gitApi('trees', { method: 'POST', body: JSON.stringify(treeBody) });
@@ -131,7 +100,6 @@ export default async function(req) {
     }
     const tree = await treeRes.json();
 
-    // Create commit
     const commitBody = { message: commitMessage, tree: tree.sha };
     if (parentSha) commitBody.parents = [parentSha];
     const commitRes = await gitApi('commits', { method: 'POST', body: JSON.stringify(commitBody) });
@@ -141,7 +109,6 @@ export default async function(req) {
     }
     const commit = await commitRes.json();
 
-    // Create or update ref
     if (parentSha) {
       const u = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/refs/heads/${defaultBranch}`, {
         method: 'PATCH', headers, body: JSON.stringify({ sha: commit.sha }), signal: t(15000),

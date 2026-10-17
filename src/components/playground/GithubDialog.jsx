@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Github, Loader2, UploadCloud, Unlink, CheckCircle2, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Github, Loader2, UploadCloud, Unlink, CheckCircle2, ExternalLink, KeyRound } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { base44 } from '@/api/base44Client';
-import { GITHUB_CONNECTOR_ID, checkGithub, disconnectGithub, pushProjectToGithub } from '@/lib/github';
+import { useNavigate } from 'react-router-dom';
+import { checkGithub, pushProjectToGithub } from '@/lib/github';
+import { getSession, getGithubToken, setGithubToken, clearGithubToken } from '@/lib/customAuth';
 
 export default function GithubDialog({ files, autoPush, onAutoPushChange, onConnectedChange }) {
   const [open, setOpen] = useState(false);
@@ -14,110 +15,103 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
   const [connected, setConnected] = useState(false);
   const [login, setLogin] = useState('');
   const [avatar, setAvatar] = useState('');
+  const [tokenInput, setTokenInput] = useState('');
   const [repo, setRepo] = useState('vibe-app');
   const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const popupRef = useRef(null);
 
   const fileCount = Object.keys(files || {}).length;
 
   const refresh = async () => {
     setLoading(true);
     setError('');
+    const session = getSession();
+    if (!session) {
+      setUser(null);
+      setConnected(false);
+      onConnectedChange?.(false);
+      setLoading(false);
+      return;
+    }
+    setUser(session);
+    const token = getGithubToken();
+    if (!token) {
+      setConnected(false);
+      setLogin('');
+      setAvatar('');
+      onConnectedChange?.(false);
+      setLoading(false);
+      return;
+    }
     try {
-      const authed = await base44.auth.isAuthenticated();
-      if (!authed) {
-        setUser(null);
-        setConnected(false);
-        onConnectedChange?.(false);
-        setLoading(false);
-        return;
-      }
-      const me = await base44.auth.me();
-      setUser(me);
-      try {
-        const data = await checkGithub();
-        setConnected(true);
-        setLogin(data.login);
-        setAvatar(data.avatar || '');
-        onConnectedChange?.(true);
-      } catch (e) {
-        setConnected(false);
-        setLogin('');
-        setAvatar('');
-        setError(e.response?.data?.error || e.message || 'تعذّر التحقق من ربط GitHub');
-        onConnectedChange?.(false);
-      }
+      const data = await checkGithub(token);
+      setConnected(true);
+      setLogin(data.login);
+      setAvatar(data.avatar || '');
+      onConnectedChange?.(true);
     } catch (e) {
       setConnected(false);
-      setError(e.response?.data?.error || e.message || 'تعذّر التحقق من الحساب');
+      setLogin('');
+      setAvatar('');
+      if (e.code !== 'github_not_connected') {
+        setError(e.message || 'تعذّر التحقق من ربط GitHub');
+      }
       onConnectedChange?.(false);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    refresh();
-    const onReturn = () => {
-      if (document.visibilityState === 'visible') refresh();
-    };
-    window.addEventListener('focus', onReturn);
-    document.addEventListener('visibilitychange', onReturn);
-    return () => {
-      window.removeEventListener('focus', onReturn);
-      document.removeEventListener('visibilitychange', onReturn);
-    };
-  }, []);
+  useEffect(() => { refresh(); }, []);
 
   useEffect(() => {
     if (open) refresh();
   }, [open]);
 
-  const handleConnect = async () => {
+  const navigate = useNavigate();
+
+  const handleSaveToken = async () => {
     setError('');
+    const token = tokenInput.trim();
+    if (!token) { setError('الصق رمز PAT أولًا'); return; }
+    setVerifying(true);
     try {
-      const url = await base44.connectors.connectAppUser(GITHUB_CONNECTOR_ID);
-      const popup = window.open(url, '_blank');
-      popupRef.current = popup;
-      const timer = setInterval(() => {
-        if (!popup || popup.closed) {
-          clearInterval(timer);
-          refresh();
-        }
-      }, 600);
+      const data = await checkGithub(token);
+      await setGithubToken(token);
+      setConnected(true);
+      setLogin(data.login);
+      setAvatar(data.avatar || '');
+      setTokenInput('');
+      onConnectedChange?.(true);
     } catch (e) {
-      setError(e.message || 'تعذّر بدء الربط');
+      setError(e.message || 'رمز غير صالح');
+    } finally {
+      setVerifying(false);
     }
   };
 
-  const handleDisconnect = async () => {
-    setError('');
-    try {
-      await disconnectGithub();
-      setConnected(false);
-      setLogin('');
-      setAvatar('');
-      onConnectedChange?.(false);
-      setResult(null);
-    } catch (e) {
-      setError(e.message || 'تعذّر فصل الربط');
-    }
+  const handleDisconnect = () => {
+    clearGithubToken();
+    setConnected(false);
+    setLogin('');
+    setAvatar('');
+    onConnectedChange?.(false);
+    setResult(null);
   };
 
   const handlePush = async () => {
     setError('');
     setResult(null);
-    if (!fileCount) {
-      setError('لا يوجد كود لرفعه بعد');
-      return;
-    }
+    if (!fileCount) { setError('لا يوجد كود لرفعه بعد'); return; }
+    const token = getGithubToken();
+    if (!token) { setError('اربط GitHub أولًا'); return; }
     setPushing(true);
     try {
-      const data = await pushProjectToGithub({ files, repo, private: isPrivate, commitMessage: 'chore: push generated app' });
+      const data = await pushProjectToGithub({ files, repo, private: isPrivate, commitMessage: 'chore: push generated app', token });
       if (data?.error) throw new Error(data.error);
       setResult(data);
       onConnectedChange?.(true);
@@ -150,14 +144,28 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
         ) : !user ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">سجّل الدخول أولًا لربط حسابك على GitHub.</p>
-            <Button onClick={() => base44.auth.redirectToLogin()} className="w-full">تسجيل الدخول</Button>
+            <Button onClick={() => navigate('/login')} className="w-full">تسجيل الدخول</Button>
           </div>
         ) : !connected ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">اربط حساب GitHub الخاص بك ليتمكن التطبيق (والـ AI) من رفع الكود المُولّد إلى مستودعاتك تلقائيًا.</p>
-            <Button onClick={handleConnect} className="w-full">
-              <Github className="w-4 h-4 mr-2" /> ربط حساب GitHub
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              أنشئ رمز وصول شخصي (PAT) من GitHub بصلاحيات <span className="font-mono">repo</span> والصقه هنا. كل مستخدم يربط حسابه الخاص بكامل الصلاحيات.
+            </p>
+            <a href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=Vibe%20Studio" target="_blank" rel="noreferrer" className="text-xs text-primary underline inline-flex items-center gap-1">
+              <ExternalLink className="w-3.5 h-3.5" /> إنشاء رمز PAT على GitHub
+            </a>
+            <div className="space-y-1.5">
+              <Label className="text-xs">رمز PAT</Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <KeyRound className="w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="ghp_..." className="pr-8 font-mono text-xs" type="password" />
+                </div>
+                <Button onClick={handleSaveToken} disabled={verifying}>
+                  {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'ربط'}
+                </Button>
+              </div>
+            </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         ) : (
