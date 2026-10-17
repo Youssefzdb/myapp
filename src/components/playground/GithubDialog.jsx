@@ -47,6 +47,16 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
       } catch {
         setConnected(false);
         onConnectedChange?.(false);
+        // retry once more — the connection may still be persisting server-side
+        setTimeout(async () => {
+          try {
+            const data2 = await checkGithub();
+            setConnected(true);
+            setLogin(data2.login);
+            setAvatar(data2.avatar || '');
+            onConnectedChange?.(true);
+          } catch { /* still not connected — user can retry manually */ }
+        }, 2500);
       }
     } catch {
       setConnected(false);
@@ -69,7 +79,8 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
       const timer = setInterval(() => {
         if (!popup || popup.closed) {
           clearInterval(timer);
-          refresh();
+          // give the server a moment to persist the connection after OAuth completes
+          setTimeout(refresh, 1500);
         }
       }, 600);
     } catch (e) {
