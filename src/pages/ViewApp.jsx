@@ -12,7 +12,8 @@ export default function ViewApp() {
   const [loading, setLoading] = useState(true);
   const [record, setRecord] = useState(null);
   const [error, setError] = useState('');
-  const [src, setSrc] = useState('');
+  const [srcDoc, setSrcDoc] = useState('');
+  const [fallbackSrc, setFallbackSrc] = useState('');
   const [user, setUser] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -40,11 +41,22 @@ export default function ViewApp() {
         appIdRef.current = rec.id;
         specRef.current = parseSpecString(rec.backend_spec);
         setIsOwner(!!me && rec.created_by_id === me.id);
+        let url = '';
         if (rec.visibility === 'public' && rec.content_url) {
-          setSrc(rec.content_url);
+          url = rec.content_url;
         } else if (rec.file_uri) {
           const r = await base44.integrations.Core.CreateFileSignedUrl({ file_uri: rec.file_uri, expires_in: 3600 });
-          setSrc(r?.signed_url || '');
+          url = r?.signed_url || '';
+        }
+        if (url) {
+          setFallbackSrc(url);
+          try {
+            const r = await fetch(url, { mode: 'cors' });
+            if (!r.ok) throw new Error('fetch status ' + r.status);
+            const html = await r.text();
+            if (html && /<div id="root">/.test(html)) setSrcDoc(html);
+            else setSrcDoc('');
+          } catch { /* CORS or network — fall back to src below */ }
         }
       } catch (e) {
         setError(e?.message || 'تعذّر الوصول. قد يكون التطبيق خاصًا وتحتاج لتسجيل الدخول أو دعوة.');
@@ -137,10 +149,17 @@ export default function ViewApp() {
         </div>
       )}
 
-      {src ? (
+      {srcDoc ? (
         <iframe
           title="published-app"
-          src={src}
+          srcDoc={srcDoc}
+          className="flex-1 w-full border-0 bg-white"
+          sandbox="allow-scripts allow-popups"
+        />
+      ) : fallbackSrc ? (
+        <iframe
+          title="published-app"
+          src={fallbackSrc}
           className="flex-1 w-full border-0 bg-white"
           sandbox="allow-scripts allow-popups allow-same-origin allow-forms allow-modals"
         />
