@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Github, Loader2, UploadCloud, Unlink, CheckCircle2, ExternalLink, KeyRound } from 'lucide-react';
+import { Github, Loader2, UploadCloud, Unlink, CheckCircle2, ExternalLink } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useNavigate } from 'react-router-dom';
-import { checkGithub, pushProjectToGithub } from '@/lib/github';
+import { checkGithub, pushProjectToGithub, getGithubConfig } from '@/lib/github';
 import { getSession, getGithubToken, setGithubToken, clearGithubToken } from '@/lib/customAuth';
 
 export default function GithubDialog({ files, autoPush, onAutoPushChange, onConnectedChange }) {
@@ -15,11 +15,10 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
   const [connected, setConnected] = useState(false);
   const [login, setLogin] = useState('');
   const [avatar, setAvatar] = useState('');
-  const [tokenInput, setTokenInput] = useState('');
   const [repo, setRepo] = useState('vibe-app');
   const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -57,8 +56,10 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
       setConnected(false);
       setLogin('');
       setAvatar('');
-      if (e.code !== 'github_not_connected') {
+      if (e.code !== 'github_not_connected' && e.code !== 'github_reconnect_required') {
         setError(e.message || 'تعذّر التحقق من ربط GitHub');
+      } else if (e.code === 'github_reconnect_required') {
+        clearGithubToken();
       }
       onConnectedChange?.(false);
     } finally {
@@ -67,34 +68,32 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
   };
 
   useEffect(() => { refresh(); }, []);
-
-  useEffect(() => {
-    if (open) refresh();
-  }, [open]);
+  useEffect(() => { if (open) refresh(); }, [open]);
 
   const navigate = useNavigate();
 
-  const handleSaveToken = async () => {
+  const handleConnect = async () => {
     setError('');
-    const token = tokenInput.trim();
-    if (!token) { setError('الصق رمز PAT أولًا'); return; }
-    setVerifying(true);
+    setConnecting(true);
     try {
-      const data = await checkGithub(token);
-      await setGithubToken(token);
-      setConnected(true);
-      setLogin(data.login);
-      setAvatar(data.avatar || '');
-      setTokenInput('');
-      onConnectedChange?.(true);
+      const cfg = await getGithubConfig();
+      const redirect_uri = window.location.origin + '/github/callback';
+      const state = Math.random().toString(36).slice(2);
+      sessionStorage.setItem('github_oauth_state', state);
+      const url = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(cfg.client_id)}&scope=repo&redirect_uri=${encodeURIComponent(redirect_uri)}&state=${state}`;
+      const popup = window.open(url, '_blank');
+      if (!popup) { setError('اسمح بالنوافذ المنبثقة لإتمام الربط'); setConnecting(false); return; }
+      const timer = setInterval(() => {
+        if (popup.closed) { clearInterval(timer); setConnecting(false); refresh(); }
+      }, 600);
     } catch (e) {
-      setError(e.message || 'رمز غير صالح');
-    } finally {
-      setVerifying(false);
+      setError(e.message || 'تعذّر بدء الربط');
+      setConnecting(false);
     }
   };
 
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
+    await setGithubToken('');
     clearGithubToken();
     setConnected(false);
     setLogin('');
@@ -148,24 +147,11 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
           </div>
         ) : !connected ? (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              أنشئ رمز وصول شخصي (PAT) من GitHub بصلاحيات <span className="font-mono">repo</span> والصقه هنا. كل مستخدم يربط حسابه الخاص بكامل الصلاحيات.
-            </p>
-            <a href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=Vibe%20Studio" target="_blank" rel="noreferrer" className="text-xs text-primary underline inline-flex items-center gap-1">
-              <ExternalLink className="w-3.5 h-3.5" /> إنشاء رمز PAT على GitHub
-            </a>
-            <div className="space-y-1.5">
-              <Label className="text-xs">رمز PAT</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <KeyRound className="w-4 h-4 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="ghp_..." className="pr-8 font-mono text-xs" type="password" />
-                </div>
-                <Button onClick={handleSaveToken} disabled={verifying}>
-                  {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'ربط'}
-                </Button>
-              </div>
-            </div>
+            <p className="text-sm text-muted-foreground">اربط حساب GitHub الخاص بك بضغطة زر — كل مستخدم يربط حسابه لوحده بكامل الصلاحيات (scope: repo).</p>
+            <Button onClick={handleConnect} disabled={connecting} className="w-full">
+              {connecting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Github className="w-4 h-4 mr-2" />}
+              {connecting ? 'جارٍ فتح GitHub…' : 'ربط حساب GitHub'}
+            </Button>
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         ) : (
