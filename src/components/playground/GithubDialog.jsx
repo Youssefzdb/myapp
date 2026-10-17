@@ -115,7 +115,7 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
       setResult(data);
       onConnectedChange?.(true);
     } catch (e) {
-      setError(e.message || 'تعذّر رفع الكود');
+      setError(e?.response?.data?.error || e.message || 'تعذّر رفع الكود');
     } finally {
       setPushing(false);
     }

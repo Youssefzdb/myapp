@@ -70,6 +70,7 @@ export default async function(req) {
 
     const gitApi = (path, init) => fetch(`https://api.github.com/repos/${owner}/${repoName}/git/${path}`, { ...init, headers, signal: t(30000) });
 
+    const paths = Object.keys(files);
     let parentSha = null;
     let baseTreeSha = null;
     const refRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/refs/heads/${defaultBranch}`, { headers, signal: t(15000) });
@@ -83,7 +84,30 @@ export default async function(req) {
       }
     }
 
-    const paths = Object.keys(files);
+    if (!parentSha && paths.length) {
+      // Repo exists but is empty — GitHub's git blobs/trees endpoints return 409
+      // on an empty repo, so bootstrap the first commit via the Contents API using
+      // the first file, then reload the ref so the git-data flow can push on top.
+      const initPath = paths[0];
+      const initBytes = new TextEncoder().encode(String(files[initPath] ?? ''));
+      let bin = '';
+      for (let i = 0; i < initBytes.length; i += 0x8000) bin += String.fromCharCode(...initBytes.subarray(i, i + 0x8000));
+      const initRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}/contents/${encodeURIComponent(initPath)}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ message: 'init', content: btoa(bin) }),
+        signal: t(15000),
+      });
+      if (!initRes.ok) {
+        const d = await initRes.json().catch(() => ({}));
+        return Response.json({ error: d.message || 'repo init failed' }, { status: 500 });
+      }
+      const refRes2 = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/refs/heads/${defaultBranch}`, { headers, signal: t(15000) });
+      if (refRes2.ok) {
+        parentSha = (await refRes2.json()).object.sha;
+        const commitRes2 = await fetch(`https://api.github.com/repos/${owner}/${repoName}/git/commits/${parentSha}`, { headers, signal: t(15000) });
+        if (commitRes2.ok) baseTreeSha = (await commitRes2.json()).tree.sha;
+      }
+    }
     const blobResults = await Promise.all(paths.map(async (path) => {
       const r = await gitApi('blobs', { method: 'POST', body: JSON.stringify({ content: String(files[path] ?? ''), encoding: 'utf-8' }) });
       if (!r.ok) throw new Error(`blob failed for ${path}: ${(await r.json().catch(() => ({}))).message || r.status}`);
