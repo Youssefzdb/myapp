@@ -10,23 +10,39 @@ export default async function(req) {
 
     const body = await req.json().catch(() => ({}));
 
-    const { accessToken } = await base44.asServiceRole.connectors.getCurrentAppUserConnection(CONNECTOR_ID);
-    if (!accessToken) return Response.json({ error: 'GitHub not connected' }, { status: 400 });
+    let accessToken;
+    try {
+      ({ accessToken } = await base44.asServiceRole.connectors.getCurrentAppUserConnection(CONNECTOR_ID));
+    } catch (error) {
+      const missing = /no active connection|not connected|connection not found/i.test(error.message || '');
+      if (!missing) throw error;
+      return Response.json({ connected: false, code: 'github_not_connected', error: 'لم يكتمل ربط GitHub بهذا الحساب. اضغط ربط حساب GitHub لإكمال الربط.' }, { status: body.check ? 200 : 409 });
+    }
+    if (!accessToken) return Response.json({ connected: false, code: 'github_reconnect_required', reconnectRequired: true, error: 'ربط GitHub غير صالح. أعد ربط الحساب لتجديد الإذن.' }, { status: body.check ? 200 : 409 });
 
     const headers = {
       'Authorization': `Bearer ${accessToken}`,
       'Accept': 'application/vnd.github+json',
+      'User-Agent': 'Vibe-Studio',
+      'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2022-11-28',
     };
     const t = (ms) => AbortSignal.timeout(ms);
-
-    // Status check only — verifies the connection and returns the GitHub login.
-    if (body.check) {
-      const meRes = await fetch('https://api.github.com/user', { headers, signal: t(15000) });
-      if (!meRes.ok) return Response.json({ error: 'GitHub auth failed' }, { status: 401 });
-      const me = await meRes.json();
-      return Response.json({ connected: true, login: me.login, avatar: me.avatar_url });
+    const meRes = await fetch('https://api.github.com/user', { headers, signal: t(15000) });
+    if (!meRes.ok) {
+      const provider = await meRes.json().catch(() => ({}));
+      const reconnectRequired = meRes.status === 401;
+      const message = reconnectRequired
+        ? 'رفض GitHub إذن الربط الحالي. اضغط إعادة ربط GitHub لتجديد الإذن.'
+        : 'تعذّر التحقق من حساب GitHub حاليًا.';
+      return Response.json({
+        connected: false, code: reconnectRequired ? 'github_reconnect_required' : 'github_verification_failed',
+        reconnectRequired, providerStatus: meRes.status,
+        error: `${message}${provider.message ? ` (${String(provider.message).slice(0, 200)})` : ''}`,
+      }, { status: body.check ? 200 : (reconnectRequired ? 409 : 502) });
     }
+    const me = await meRes.json();
+    if (body.check) return Response.json({ connected: true, login: me.login, avatar: me.avatar_url });
 
     const files = body.files && typeof body.files === 'object' ? body.files : {};
     const fileCount = Object.keys(files).length;
@@ -35,10 +51,6 @@ export default async function(req) {
     const repoName = String(body.repo || 'vibe-app').trim().replace(/\s+/g, '-').slice(0, 60);
     const isPrivate = !!body.private;
     const commitMessage = String(body.commitMessage || 'chore: push generated app').slice(0, 200);
-
-    const meRes = await fetch('https://api.github.com/user', { headers, signal: t(15000) });
-    if (!meRes.ok) return Response.json({ error: 'GitHub auth failed' }, { status: 401 });
-    const me = await meRes.json();
     const owner = me.login;
 
     // Ensure repo exists

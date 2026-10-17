@@ -44,27 +44,34 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
         setLogin(data.login);
         setAvatar(data.avatar || '');
         onConnectedChange?.(true);
-      } catch {
+      } catch (e) {
         setConnected(false);
+        setLogin('');
+        setAvatar('');
+        setError(e.response?.data?.error || e.message || 'تعذّر التحقق من ربط GitHub');
         onConnectedChange?.(false);
-        // retry once more — the connection may still be persisting server-side
-        setTimeout(async () => {
-          try {
-            const data2 = await checkGithub();
-            setConnected(true);
-            setLogin(data2.login);
-            setAvatar(data2.avatar || '');
-            onConnectedChange?.(true);
-          } catch { /* still not connected — user can retry manually */ }
-        }, 2500);
       }
-    } catch {
+    } catch (e) {
       setConnected(false);
+      setError(e.response?.data?.error || e.message || 'تعذّر التحقق من الحساب');
       onConnectedChange?.(false);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    refresh();
+    const onReturn = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, []);
 
   useEffect(() => {
     if (open) refresh();
@@ -79,8 +86,7 @@ export default function GithubDialog({ files, autoPush, onAutoPushChange, onConn
       const timer = setInterval(() => {
         if (!popup || popup.closed) {
           clearInterval(timer);
-          // give the server a moment to persist the connection after OAuth completes
-          setTimeout(refresh, 1500);
+          refresh();
         }
       }, 600);
     } catch (e) {
