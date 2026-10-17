@@ -1,12 +1,12 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Lock, UserPlus, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { safeReturnTo } from "@/lib/authReturnTo";
+import { registerAccount } from "@/lib/customAuth";
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -19,8 +19,7 @@ export default function Register() {
     setLoading(true);
     setError("");
     try {
-      await base44.auth.register({ email, password });
-      await base44.auth.loginViaEmailPassword(email, password);
+      await registerAccount(email, password);
       window.location.href = safeReturnTo();
     } catch (err) {
       setError(err?.message || "تعذّر إنشاء الحساب. حاول مرة أخرى.");

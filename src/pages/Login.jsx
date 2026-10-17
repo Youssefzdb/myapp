@@ -1,12 +1,12 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Lock, LogIn, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import { safeReturnTo } from "@/lib/authReturnTo";
+import { loginAccount } from "@/lib/customAuth";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -19,7 +19,7 @@ export default function Login() {
     setLoading(true);
     setError("");
     try {
-      await base44.auth.loginViaEmailPassword(email, password);
+      await loginAccount(email, password);
       window.location.href = safeReturnTo();
     } catch (err) {
       setError(err?.message || "تعذّر تسجيل الدخول. تحقق من بياناتك.");
