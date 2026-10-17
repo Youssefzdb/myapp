@@ -1,0 +1,61 @@
+{
+  "name": "PublishedApp",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u0627\u0644\u0645\u0646\u0634\u0648\u0631"
+    },
+    "content_url": {
+      "type": "string",
+      "description": "\u0631\u0627\u0628\u0637 \u0639\u0627\u0645 \u0644\u0644\u0645\u0644\u0641 (\u0644\u0644\u0646\u0634\u0631 \u0627\u0644\u0639\u0627\u0645)"
+    },
+    "file_uri": {
+      "type": "string",
+      "description": "\u0645\u0639\u0631\u0651\u0641 \u0627\u0644\u0645\u0644\u0641 \u0627\u0644\u062e\u0627\u0635 (\u0644\u0644\u0646\u0634\u0631 \u0627\u0644\u062e\u0627\u0635)"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "public",
+        "private"
+      ],
+      "default": "public",
+      "description": "\u0639\u0627\u0645: \u0623\u064a \u0634\u062e\u0635 \u0628\u0627\u0644\u0631\u0627\u0628\u0637. \u062e\u0627\u0635: \u0627\u0644\u0645\u0627\u0644\u0643 \u0648\u0627\u0644\u0645\u062f\u0639\u0648\u0648\u0646 \u0641\u0642\u0637."
+    },
+    "invites": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "\u0642\u0627\u0626\u0645\u0629 \u0628\u0631\u064a\u062f \u0627\u0644\u0645\u062f\u0639\u0648\u064a\u0646 \u0644\u0644\u0646\u0634\u0631 \u0627\u0644\u062e\u0627\u0635"
+    }
+  },
+  "required": [
+    "visibility"
+  ],
+  "rls": {
+    "read": {
+      "$or": [
+        {
+          "data.visibility": "public"
+        },
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "data.invites": "{{user.email}}"
+        }
+      ]
+    },
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "update": {
+      "created_by_id": "{{user.id}}"
+    },
+    "delete": {
+      "created_by_id": "{{user.id}}"
+    }
+  }
+}

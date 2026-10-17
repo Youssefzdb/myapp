@@ -2,6 +2,7 @@ import React from 'react';
 import { Sparkles, Plus, Github, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GithubDialog from './GithubDialog';
+import PublishDialog from './PublishDialog';
 import AccountButton from './AccountButton';
 
 export const EFFORT_OPTIONS = [
@@ -10,7 +11,7 @@ export const EFFORT_OPTIONS = [
   { id: "high", name: "عميق" },
 ];
 
-export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy, effort, onEffortChange, files, autoPush, onAutoPushChange, onGithubConnected }) {
+export default function TopBar({ model, models, onModelChange, onRefreshModels, checking, onNewSession, busy, effort, onEffortChange, files, title, autoPush, onAutoPushChange, onGithubConnected }) {
   return (
     <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 border-b bg-background">
       <div className="flex items-center gap-2.5">
@@ -60,6 +61,7 @@ export default function TopBar({ model, models, onModelChange, onRefreshModels, 
         <Button variant="outline" size="sm" onClick={onNewSession} disabled={busy}>
           <Plus className="w-4 h-4 mr-1" />جديد
         </Button>
+        <PublishDialog files={files} title={title} />
         <GithubDialog files={files} autoPush={autoPush} onAutoPushChange={onAutoPushChange} onConnectedChange={onGithubConnected} />
         <AccountButton />
       </div>

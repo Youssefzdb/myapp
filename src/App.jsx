@@ -12,6 +12,7 @@ import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
+import ViewApp from '@/pages/ViewApp';
 
 
 const AuthenticatedApp = () => {
@@ -39,6 +40,7 @@ const AuthenticatedApp = () => {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/" element={<Playground />} />
+      <Route path="/view/:id" element={<ViewApp />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
