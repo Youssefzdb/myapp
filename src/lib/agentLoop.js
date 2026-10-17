@@ -7,7 +7,7 @@ import { streamChat } from "./opencode";
 import { base44 } from "@/api/base44Client";
 import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports, normalizePath, undefinedComponents, emptyFiles } from "./files";
 import { buildProjectFiles } from "./preview";
-import { capturePreviewScreenshot } from "./screenshot";
+import { captureAndVerifyPreview } from "./screenshot";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. You build professional apps with a React + TypeScript + Tailwind FRONTEND in src/ AND a declarative REST BACKEND in server/. Frontend files (8-25 focused): src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -89,7 +89,7 @@ Extra tools (the host executes them for real and returns results):
 - fetch_website: fetch the text content of a public URL (use when the user gives a link to base the app on, or to pull real copy/data). Returns extracted text.
 - push_github: push the current project to the user's connected GitHub repo (creates the repo if needed and commits all files). Optional attrs: repo (default "vibe-app"), private ("true"/"false"), message. Use it when the user asks to push/upload to GitHub, or automatically once the app is complete and working if they asked for auto-push. Returns the repo URL.
 - skill_list: browse and load building skills from the platform's skill library. With no query (skill_list), returns the catalog (name + category + description). With query="<term>" (e.g. <action name="skill_list" query="charts"/>), returns the FULL instructions of matching skills (ui, data, auth, integration, backend, advanced). Load the relevant skill BEFORE building a feature you are unsure about — e.g. load "charts" before a dashboard, "forms" before a form, "auth_flow" before login. Do NOT load every skill; only what the current task needs.
-- verify_preview: captures a real screenshot of the LIVE rendered preview and has a vision model check it against the user's request. Returns ok plus any visual issues (empty/blank page, raw unstyled HTML, error/crash screen, badly broken layout, or the main requested feature not visible). Call it proactively when you suspect the render is broken. A visual check ALSO runs automatically right before finish — if it finds issues, fix them with write_file/edit_file and call finish again.
+- verify_preview: captures a real screenshot of the LIVE rendered preview and runs a FREE visual sanity check (no credits): blank page, error screen, or near-empty render. Returns ok plus any issues found. Call it proactively when you suspect the render is broken. A visual check ALSO runs automatically right before finish — if it finds issues, fix them with write_file/edit_file and call finish again.
   Use these tools when they genuinely improve the result; don't call them for trivial apps.
 
 Rules:
@@ -355,16 +355,13 @@ export async function runAgentLoop(opts) {
           }
         } else if (call.name === "verify_preview") {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا…" });
-          const shot = await capturePreviewScreenshot(files);
+          const v = await captureAndVerifyPreview(files);
           opts.onEvent({ type: "status", text: null });
-          if (!shot) throw new Error("screenshot failed");
-          tc.url = shot;
-          const resp = await base44.functions.invoke("verifyPreview", { image_url: shot, task: opts.prompt });
-          const d = resp?.data;
-          if (!d || d.error) throw new Error(d?.error || "verify failed");
-          output = d.ok
-            ? `Visual check PASSED. ${d.notes || ""}`.trim()
-            : `Visual check FAILED. Fix these:\n${d.issues || ""}`;
+          if (!v) throw new Error("screenshot failed");
+          if (v.url) tc.url = v.url;
+          output = v.ok
+            ? `Visual check PASSED. ${v.notes || ""}`.trim()
+            : `Visual check FAILED. Fix these:\n${v.issues || ""}`;
         } else if (call.name === "finish") {
           output = call.body || "Done.";
           toolResults.push(`finish: ${output}`);
@@ -391,12 +388,8 @@ export async function runAgentLoop(opts) {
       if (files[ENTRY]) {
         try {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا قبل الإنهاء…" });
-          const shot = await capturePreviewScreenshot(files);
-          if (shot) {
-            const resp = await base44.functions.invoke("verifyPreview", { image_url: shot, task: opts.prompt });
-            const d = resp?.data;
-            if (d && !d.error) verify = { ok: d.ok !== false, issues: d.issues || "", notes: d.notes || "" };
-          }
+          const v = await captureAndVerifyPreview(files);
+          if (v) verify = { ok: v.ok !== false, issues: v.issues || "", notes: v.notes || "" };
         } catch (e) {
           verify = { ok: true, issues: "", notes: "تعذّر التحقق البصري: " + String(e?.message || e) };
         }
