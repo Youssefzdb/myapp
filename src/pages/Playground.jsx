@@ -384,13 +384,26 @@ export default function Playground() {
         if (result.changed) {
           try { codeUri = await uploadCodePrivate(result.files); } catch {}
         }
-        await base44.entities.Message.update(asstDbId, {
-          content: result.summary || 'تم بناء التطبيق',
-          code_uri: codeUri ?? undefined,
-          version: versionBump ?? lastVersion,
-          tool_calls: toolsAccum,
-          status: 'done',
-        });
+        // Truncate large tool-call fields so the record stays within the
+        // entity field size limit (full code lives in code_uri instead).
+        const MAX = 1500;
+        const safeToolCalls = toolsAccum.map((t) => ({
+          ...t,
+          content: (t.content || '').slice(0, MAX),
+          output: (t.output || '').slice(0, MAX),
+          args: t.args && typeof t.args === 'object'
+            ? Object.fromEntries(Object.entries(t.args).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, MAX) : v]))
+            : t.args,
+        }));
+        try {
+          await base44.entities.Message.update(asstDbId, {
+            content: (result.summary || 'تم بناء التطبيق').slice(0, 4000),
+            code_uri: codeUri ?? undefined,
+            version: versionBump ?? lastVersion,
+            tool_calls: safeToolCalls,
+            status: 'done',
+          });
+        } catch { /* field-size guard; the session still works locally */ }
       }
 
       // Save the project to the signed-in user's private list (each user sees only their own)
