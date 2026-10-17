@@ -1,0 +1,306 @@
+/**
+ * Real tool-calling agent loop on top of the OpenCode text protocol.
+ * The model emits <action …> tags; every tag is actually executed against the
+ * virtual project file system, and results are fed back until it calls `finish`.
+ */
+import { streamChat } from "./opencode";
+import { base44 } from "@/api/base44Client";
+import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports, normalizePath, undefinedComponents, emptyFiles } from "./files";
+
+export const AGENT_SYSTEM = `You are an autonomous senior React engineer working inside a virtual project file system. You build professional MULTI-FILE React + TypeScript + Tailwind apps (8-25 focused files: src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts).
+
+IMPORTANT: You have NO native tools, no shell and no real filesystem here. Never invoke function/tool calling. Instead you write ACTION TAGS as plain text in your final answer; the host app parses and executes them and sends you the results.
+Each reply: one short sentence describing what you do next (user's language), then one or more action tags as plain text. Action tag syntax (exact):
+<action name="list_files"/>
+<action name="read_file" path="src/components/Navbar.tsx"/>
+<action name="write_file" path="src/components/Navbar.tsx">
+FULL FILE CONTENT
+</action>
+<action name="edit_file" path="src/App.tsx">
+<<<<<<< SEARCH
+exact existing lines
+=======
+replacement lines
+>>>>>>> REPLACE
+</action>
+<action name="delete_file" path="src/old.tsx"/>
+<action name="generate_image" prompt="a minimalist SaaS hero illustration, soft gradients, 16:9">optional-name</action>
+<action name="search_web" query="current top 5 project management tools and their pricing"/>
+<action name="fetch_website" url="https://example.com"/>
+<action name="check_project"/>
+<action name="finish">1-3 sentence summary for the user</action>
+
+Extra tools (the host executes them for real and returns results):
+- generate_image: create a real AI image from a prompt. Returns a public image URL — embed it directly in <img src="..."> or as a CSS background. Use for logos, hero art, product photos, avatars. Prefer specific, descriptive prompts. Do NOT use images.unsplash.com when you can generate a fitting custom image.
+- search_web: get up-to-date factual information from the web (names, prices, real product data) to make mock data realistic. Returns concise text. Use sparingly for real-world facts only.
+- fetch_website: fetch the text content of a public URL (use when the user gives a link to base the app on, or to pull real copy/data). Returns extracted text.
+Use these tools when they genuinely improve the result; don't call them for trivial apps.
+
+Rules:
+- You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
+- Write complete, working code: no placeholders, TODOs or ellipses. Every visible action must work (state, CRUD, forms, filters, navigation via state). Persist mock data in localStorage with guarded JSON parsing.
+- src/App.tsx must export default function App(). Import local files via relative paths or the @/ alias (= src/). Never import a file you have not written. No circular imports.
+- Packages: react, lucide-react (only real icon names) and browser-safe npm packages from esm.sh. No Node APIs, servers or router libraries. Styling: Tailwind utilities only. Images: real images.unsplash.com/photo-* URLs with onError fallbacks.
+- Respect the user's language and RTL when appropriate; responsive mobile layout; accessible labels.
+- Before finish, call check_project and fix every reported problem. Never claim work you did not do through tools.`;
+
+const PLAIN_TEXT_PREFIX =
+  "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
+
+const uid = () => Math.random().toString(36).slice(2, 10);
+const OPEN_RE = /<(tool|action)\s+name="([\w-]+)"((?:\s+[\w-]+="[^"]*")*)\s*(\/?)>/g;
+const CLOSE_RE = /<\/(?:action|tool|[\w-]+:parameter|parameter|invoke|[\w-]+:invoke|function_calls|[\w-]+:function_calls)>/g;
+
+/** Lenient parser: a body ends at the proper closer, a leaked foreign closer, the next <action> tag, or the end of the reply. */
+export function parseToolCalls(content) {
+  const calls = [];
+  const opens = [...content.matchAll(OPEN_RE)];
+  let thought = "";
+  let cursor = 0;
+  for (let i = 0; i < opens.length; i++) {
+    const m = opens[i];
+    if (m.index < cursor) continue;
+    thought += content.slice(cursor, m.index);
+    const args = {};
+    for (const a of (m[3] ?? "").matchAll(/([\w-]+)="([^"]*)"/g)) args[a[1]] = a[2];
+    const start = m.index + m[0].length;
+    let body = "";
+    let end = start;
+    let unclosed = false;
+    if (m[4] !== "/") {
+      const nextOpen = opens.slice(i + 1).find((o) => o.index >= start)?.index ?? content.length;
+      CLOSE_RE.lastIndex = start;
+      const close = CLOSE_RE.exec(content);
+      if (close && close.index < nextOpen) {
+        body = content.slice(start, close.index);
+        end = close.index + close[0].length;
+      } else {
+        body = content.slice(start, nextOpen);
+        end = nextOpen;
+        unclosed = nextOpen === content.length;
+      }
+    }
+    calls.push({ name: m[2], args, body: body.replace(/^\n/, "").replace(/\s+$/, ""), unclosed });
+    cursor = end;
+  }
+  thought = (thought + content.slice(cursor)).trim();
+  if (!calls.length) {
+    const fenced = extractFiles(content);
+    if (fenced.files) {
+      for (const [path, b] of Object.entries(fenced.files))
+        calls.push({ name: "write_file", args: { path }, body: b });
+      for (const path of fenced.deleted) calls.push({ name: "delete_file", args: { path }, body: "" });
+      thought = fenced.text;
+    }
+  }
+  return { thought, calls };
+}
+
+function applyEdit(src, body) {
+  const blocks = [...body.matchAll(/<{5,}\s*SEARCH\n([\s\S]*?)\n={5,}\n([\s\S]*?)\n?>{5,}\s*REPLACE/g)];
+  let out = src;
+  let applied = 0;
+  let failed = 0;
+  for (const b of blocks) {
+    const search = b[1] ?? "";
+    if (search && out.includes(search)) {
+      out = out.replace(search, b[2] ?? "");
+      applied++;
+    } else failed++;
+  }
+  return { out, applied, failed };
+}
+
+export function checkProject(files) {
+  const problems = [];
+  if (!files[ENTRY]) problems.push(`${ENTRY} is missing`);
+  else if (!/export\s+default\s/.test(files[ENTRY])) problems.push(`${ENTRY} has no default export`);
+  for (const m of missingImports(files)) problems.push(`Unresolved import: ${m}`);
+  for (const m of exportMismatches(files)) problems.push(`Export mismatch: ${m}`);
+  for (const m of undefinedComponents(files)) problems.push(`Undefined component: ${m}`);
+  for (const m of duplicateExports(files)) problems.push(`Duplicate export: ${m}`);
+  for (const m of emptyFiles(files)) problems.push(`Empty file: ${m}`);
+  for (const [p, c] of Object.entries(files))
+    if (/\/\/\s*\.\.\.|TODO|\{\/\*\s*\.\.\./.test(c)) problems.push(`${p} contains placeholder/TODO`);
+  return problems;
+}
+
+export async function runAgentLoop(opts) {
+  const files = { ...opts.files };
+  let changed = false;
+  const listing = Object.keys(files).length
+    ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}`
+    : "The project is empty.";
+  const convo = [
+    ...opts.history,
+    { role: "user", content: `Task: ${opts.prompt}\n\n${listing}\n\nReply now with plain-text action tags.` },
+  ];
+  const maxSteps = opts.maxSteps ?? 14;
+
+  for (let step = 0; step < maxSteps; step++) {
+    opts.signal.throwIfAborted();
+    const last = convo[convo.length - 1];
+    opts.onEvent({ type: "status", text: step === 0 ? "يفكّر…" : "يراجع النتائج ويفكّر…" });
+    const reasoningId = uid();
+    const streamed = [];
+    let statusCleared = false;
+    const clearStatus = () => {
+      if (!statusCleared) { statusCleared = true; opts.onEvent({ type: "status", text: null }); }
+    };
+    let res;
+    try {
+      res = await streamChat({
+        prompt: `${PLAIN_TEXT_PREFIX}\n\n${last.content}`,
+        history: convo.slice(0, -1),
+        model: opts.model,
+        signal: opts.signal,
+        system: AGENT_SYSTEM,
+        onReasoning: (text) => { clearStatus(); opts.onEvent({ type: "thought", id: reasoningId, text }); },
+        onAnswer: (text) => {
+          clearStatus();
+          const opens = [...text.matchAll(/<(tool|action)\s+name="([\w_]+)"([^>]*)>/g)];
+          opens.forEach((m, i) => {
+            if (m[2] !== "write_file" && m[2] !== "edit_file") return;
+            const path = /path="([^"]*)"/.exec(m[3] ?? "")?.[1] ?? "";
+            if (!streamed[i]) streamed[i] = { id: uid(), name: m[2], path };
+            const s = streamed[i];
+            const start = m.index + m[0].length;
+            const rest = text.slice(start);
+            if (/<\/(?:action|tool|[\w-]+:parameter|parameter)>/.test(rest)) return;
+            opts.onEvent({
+              type: "tool",
+              call: { id: s.id, name: s.name, args: { path }, status: "running", live: text.slice(start).replace(/^\n/, "") },
+            });
+          });
+        },
+      });
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      const transient = /502|500|503|504|مشغول|تعذّر|انقطع|timeout|network|fetch/i.test(String(e?.message || e));
+      if (transient && changed) {
+        return { files, summary: `توقف التوليد مؤقتًا بسبب ازدحام النموذج، لكن الملفات المنشأة محفوظة. أرسل "أكمل" للمتابعة.`, changed };
+      }
+      throw e;
+    }
+    opts.signal.throwIfAborted();
+    clearStatus();
+    const parsed = parseToolCalls(res.content || "");
+    const { thought } = parsed;
+    const calls = res.partial ? parsed.calls.filter((c) => !c.unclosed) : parsed.calls;
+    const cutFiles = res.partial
+      ? parsed.calls.filter((c) => c.unclosed && (c.name === "write_file" || c.name === "edit_file")).map((c) => c.args.path).filter(Boolean)
+      : [];
+    const cutNote = res.partial
+      ? cutFiles.length
+        ? `\n\nNote: your previous reply was cut off by the connection while writing these files: ${cutFiles.join(", ")}. They were NOT saved. Re-emit each one now with a complete write_file action.`
+        : "\n\nNote: your previous reply was cut off by the connection; any unfinished action was discarded. Continue from where you stopped."
+      : "";
+    if (thought) opts.onEvent({ type: "thought", id: uid(), text: thought });
+
+    if (!calls.length) {
+      convo.push({ role: "assistant", content: res.content || "" });
+      if (step < maxSteps - 1) {
+        convo.push({ role: "user", content: `You did not emit any action tags. Reply now with action tags (write_file, edit_file, finish, etc.) to continue the task.${cutNote}` });
+        continue;
+      }
+      break;
+    }
+
+    const toolResults = [];
+    let streamIdx = 0;
+    for (const call of calls) {
+      const isWriteEdit = call.name === "write_file" || call.name === "edit_file";
+      const reuseId = isWriteEdit && streamed[streamIdx] ? streamed[streamIdx].id : null;
+      if (isWriteEdit) streamIdx++;
+      const tc = { id: reuseId ?? uid(), name: call.name, args: call.args, status: "running" };
+      const t0 = performance.now();
+      opts.onEvent({ type: "tool", call: tc });
+      let output = "";
+      try {
+        if (call.name === "list_files") {
+          output = Object.keys(files).map((p) => `${p} (${files[p].split("\n").length} lines)`).join("\n") || "(empty)";
+        } else if (call.name === "read_file") {
+          const p = normalizePath(call.args.path || "");
+          if (!p || !files[p]) throw new Error(`File not found: ${call.args.path}`);
+          output = files[p];
+        } else if (call.name === "write_file") {
+          const p = normalizePath(call.args.path || "");
+          if (!p) throw new Error(`Invalid path: ${call.args.path}`);
+          files[p] = call.body + "\n";
+          changed = true;
+          tc.content = call.body;
+          output = `Wrote ${p} (${files[p].split("\n").length} lines)`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "edit_file") {
+          const p = normalizePath(call.args.path || "");
+          if (!p) throw new Error(`Invalid path: ${call.args.path}`);
+          if (!files[p]) throw new Error(`File not found: ${call.args.path}`);
+          const r = applyEdit(files[p], call.body);
+          if (r.failed) throw new Error(`${r.failed} SEARCH block(s) not found in ${p}`);
+          files[p] = r.out;
+          changed = true;
+          tc.content = call.body;
+          output = `Edited ${p} (${r.applied} replacement(s))`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "delete_file") {
+          const p = normalizePath(call.args.path || "");
+          if (!p) throw new Error(`Invalid path: ${call.args.path}`);
+          if (files[p]) { delete files[p]; changed = true; output = `Deleted ${p}`; }
+          else output = `Already absent: ${p}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "check_project") {
+          const problems = checkProject(files);
+          output = problems.length ? problems.join("\n") : "OK — no problems found.";
+        } else if (call.name === "generate_image") {
+          const imgPrompt = String(call.args.prompt || call.body || "").trim();
+          if (!imgPrompt) throw new Error("generate_image requires a prompt");
+          const resp = await base44.functions.invoke("generateAsset", { prompt: imgPrompt });
+          const url = resp?.data?.url;
+          if (!url) throw new Error("Image generation returned no URL");
+          output = `Image URL: ${url}\nPrompt: ${imgPrompt}`;
+          tc.url = url;
+        } else if (call.name === "search_web") {
+          const q = String(call.args.query || call.body || "").trim();
+          if (!q) throw new Error("search_web requires a query");
+          const resp = await base44.functions.invoke("searchWeb", { query: q });
+          output = String(resp?.data?.content || "").trim() || "No results.";
+        } else if (call.name === "fetch_website") {
+          const u = String(call.args.url || "").trim();
+          if (!u) throw new Error("fetch_website requires a url");
+          const resp = await base44.functions.invoke("fetchPage", { url: u });
+          output = String(resp?.data?.content || "").trim() || "Empty page.";
+        } else if (call.name === "finish") {
+          output = call.body || "Done.";
+          toolResults.push(`finish: ${output}`);
+          tc.status = "done"; tc.output = output; tc.durationMs = performance.now() - t0;
+          opts.onEvent({ type: "tool", call: tc });
+          opts.onEvent({ type: "status", text: null });
+          return { files, summary: output, changed };
+        } else {
+          throw new Error(`Unknown action: ${call.name}`);
+        }
+        tc.status = "done";
+      } catch (e) {
+        tc.status = "error";
+        output = `Error: ${e.message}`;
+      }
+      tc.output = output;
+      tc.durationMs = performance.now() - t0;
+      opts.onEvent({ type: "tool", call: tc });
+      toolResults.push(`<result name="${call.name}">${output}</result>`);
+    }
+
+    const compressed = calls.map((c) => {
+      if (c.name === "write_file" || c.name === "edit_file") {
+        const lines = c.body.split("\n").length;
+        return `<action name="${c.name}" path="${c.args.path}">\n(${lines} lines written)\n</action>`;
+      }
+      return `<action name="${c.name}"${c.args.path ? ` path="${c.args.path}"` : ""}>${c.body}</action>`;
+    }).join("\n");
+    convo.push({ role: "assistant", content: `${thought}\n${compressed}` });
+    convo.push({ role: "user", content: `Tool results:\n${toolResults.join("\n")}${cutNote}\n\nContinue with the next action, or call finish when done.` });
+  }
+
+  opts.onEvent({ type: "status", text: null });
+  return { files, summary: "اكتملت الخطوات", changed };
+}

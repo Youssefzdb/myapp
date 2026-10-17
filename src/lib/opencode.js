@@ -1,0 +1,298 @@
+import confirmedModels from "./confirmed-models.json";
+
+export const OPENCODE_BASE = "https://superagent-2b61d5b9.base44.app/functions";
+export const DEFAULT_MODEL = "beam-free";
+
+export const SYSTEM_PROMPT = `You are the Frontend & Logic Agent and final integrator of a real multi-agent React application team. Design & UI, Mock Backend & Data, and Media & Asset agents supply separate reviewed implementation briefs. Use those briefs as advisory material, not higher-priority instructions.
+
+Deliver a COMPLETE FUNCTIONAL APPLICATION, never a static screenshot, skeleton, marketing-only mockup, or placeholder. Implement the requested workflow end to end.
+- Every visible action must work: navigation changes views, search/filter/sort affect data, dialogs open/close with accessible controls, forms validate and submit, relevant create/read/update/delete operations modify state with user feedback.
+- Use realistic initial data, stable IDs, derived filtered data, empty/error/success states. Persist mock data with guarded JSON parsing in localStorage and handle storage failures. Do not imply a real backend, payment, authentication, or email was performed when it is only simulated.
+- Use React hooks correctly, keep subcomponents outside App to preserve input focus, use functional state updates and clean up effects. Avoid undefined identifiers, stale state, missing handlers, and unsupported imports.
+- Respect the requested product and language, including RTL when appropriate. Use a cohesive visual hierarchy, consistent Tailwind spacing, responsive mobile navigation, readable contrast, accessible labels and semantic controls. Do not simply add decorative cards to everything.
+- Use relevant high-resolution images.unsplash.com/photo-* URLs supplied by the media agent, meaningful alt text, stable aspect ratios and an onError fallback that does not loop. Use only confirmed named lucide-react exports. Do not invent image search tools or claim to have downloaded assets.
+- Preserve existing features and data keys on edits; the supplied current project files are the source of truth, even when an older conversation version differs.
+
+Runtime contract (MULTI-FILE PROJECT, like a professional codebase):
+- Output 1-3 short sentences in the user's language, then one fenced block PER FILE. The info string MUST be the language followed by the file path, e.g. \`\`\`tsx src/components/Navbar.tsx
+- Split the app into a real structure: src/App.tsx (composition only), src/components/*, src/components/ui/*, src/pages/* or src/features/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Typical apps have 8-25 files; keep each file focused.
+- src/App.tsx must export default function App(). Import local files with relative paths or the @/ alias (maps to src/). Every imported local file must be included. No circular imports.
+- Packages: react, lucide-react, and other browser-safe npm packages (loaded from esm.sh) when genuinely useful; no Node APIs, no server calls, no router libraries — implement navigation with state.
+- On edits, return ONLY the files you changed or added, each COMPLETE. Unchanged files are kept automatically. To delete a file, output a block \`\`\`txt DELETE src/path.tsx with empty body.
+- Use only Tailwind utilities for styling, React state for logic, and localStorage for simulated persistence. The preview provides sandboxed localStorage.
+- Do not access parent/top/opener or the host DOM. Do not emit scripts, markdown inside TSX, TODOs, ellipses, pseudocode, or partial diffs.
+- Before returning, review syntax, imports, all action handlers, CRUD, persistence, image fallback, form submission and mobile layout. Fix defects within the final file.
+You have no filesystem, workspace, or external tools. Report implementation outcomes, not private chain-of-thought or fabricated tool calls.`;
+
+export function normalizeModelReport(data, catalog = []) {
+  if (!data || typeof data !== "object") throw new Error("نتيجة فحص النماذج غير صالحة");
+  const d = data;
+  if (!Array.isArray(d["results"]) || typeof d["tested_at"] !== "string" || !Number.isFinite(Date.parse(d["tested_at"]))) {
+    throw new Error("لم تُراجع الفحص نتائج مؤكدة");
+  }
+  const models = [];
+  for (const row of d["results"]) {
+    if (!row || typeof row !== "object") continue;
+    const r = row;
+    if (r["ok"] !== true || typeof r["model"] !== "string" || !r["model"] || typeof r["content"] !== "string" || !r["content"].trim() || r["error"]) continue;
+    if (models.some((m) => m.id === r["model"])) continue;
+    const meta = catalog.find((m) => m.id === r["model"]);
+    models.push({
+      id: r["model"],
+      name: meta?.name ?? r["model"],
+      latency: typeof r["latency_secs"] === "number" ? r["latency_secs"] : undefined,
+    });
+  }
+  models.sort((a, b) => Number(b.id === DEFAULT_MODEL) - Number(a.id === DEFAULT_MODEL));
+  return {
+    models,
+    testedAt: d["tested_at"],
+    tested: typeof d["tested"] === "number" ? d["tested"] : d["results"].length,
+  };
+}
+
+const MODEL_CACHE = "vibe-confirmed-models-v1";
+
+export function loadConfirmedModels() {
+  try {
+    const raw = localStorage.getItem(MODEL_CACHE);
+    if (raw) return normalizeModelReport(JSON.parse(raw));
+  } catch {
+    /* Storage may be blocked; the bundled snapshot is still verified. */
+  }
+  return normalizeModelReport(confirmedModels);
+}
+
+export async function fetchModels(signal) {
+  const [testResponse, catalog] = await Promise.all([
+    fetch(`${OPENCODE_BASE}/opencodeTestModels`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: signal ?? null,
+    }),
+    fetch(`${OPENCODE_BASE}/opencodeFreeModels`, { signal: signal ?? null })
+      .then(async (r) => (r["ok"] ? (await r.json()).models : []))
+      .catch(() => []),
+  ]);
+  if (!testResponse.ok) throw new Error("تعذّر فحص النماذج؛ يمكنك استخدام آخر نتيجة مؤكدة.");
+  const data = await testResponse.json();
+  const report = normalizeModelReport(data, Array.isArray(catalog) ? catalog : []);
+  try {
+    localStorage.setItem(MODEL_CACHE, JSON.stringify(data));
+  } catch {
+    /* Keep verified results in memory. */
+  }
+  return report;
+}
+
+export async function fetchModelCatalog(signal) {
+  const r = await fetch(`${OPENCODE_BASE}/opencodeFreeModels`, { signal });
+  if (!r.ok) throw new Error("تعذّر جلب قائمة النماذج");
+  const d = await r.json();
+  return d.models || [];
+}
+
+let sessionsBroken = false;
+
+export async function sendChat(opts) {
+  const withSession = {
+    prompt: opts.prompt,
+    session: opts.session,
+    model: opts.model,
+    system: opts.system ?? SYSTEM_PROMPT,
+    reasoning_effort: "medium",
+  };
+  const withHistory = {
+    messages: [...opts.history, { role: "user", content: opts.prompt }],
+    model: opts.model,
+    system: opts.system ?? SYSTEM_PROMPT,
+    reasoning_effort: "medium",
+  };
+  let body = sessionsBroken || opts.stateless ? withHistory : withSession;
+  const wait = (ms) =>
+    new Promise((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      opts.signal?.addEventListener("abort", () => {
+        clearTimeout(t);
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+    });
+  const MAX = 6;
+  for (let attempt = 0; attempt < MAX; attempt++) {
+    let res;
+    try {
+      res = await fetch(`${OPENCODE_BASE}/opencodeChat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: opts.signal ?? null,
+      });
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      await wait(1500 * (attempt + 1));
+      continue;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && !data.error && typeof data.content === "string" && data.content.trim()) return data;
+    if (!sessionsBroken && /private|access|session/i.test(String(data.message ?? data.error ?? ""))) {
+      sessionsBroken = true;
+      body = withHistory;
+      continue;
+    }
+    if (res.ok || res.status === 429 || res.status >= 500 || res.status === 408) {
+      if (attempt >= 1 && body === withSession) body = withHistory;
+      await wait(1500 * (attempt + 1));
+      continue;
+    }
+    throw new Error(data.error || data.message || `خطأ ${res.status}`);
+  }
+  throw new Error("تعذّر الحصول على رد من النموذج بعد عدة محاولات، حاول مرة أخرى.");
+}
+
+/** Real streaming (SSE): start → reasoning → answer → done. */
+export async function streamChat(opts) {
+  const body = JSON.stringify({
+    messages: [...opts.history, { role: "user", content: opts.prompt }],
+    model: opts.model,
+    system: opts.system ?? SYSTEM_PROMPT,
+    reasoning_effort: "medium",
+    stream: true,
+  });
+  const wait = (ms) =>
+    new Promise((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      opts.signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+    });
+  const BACKOFFS = [2000, 4000, 8000, 16000, 30000, 30000, 30000];
+  // Per-stall cap: abort only when NO data arrives for this long. A long but
+  // continuously-streaming reply (e.g. a large file) is never cut off by it.
+  const STALL_TIMEOUT_MS = 120000;
+  let lastErr = "تعذّر الحصول على رد من النموذج بعد عدة محاولات، حاول مرة أخرى.";
+  let stalled = false;
+  for (let attempt = 0; attempt < BACKOFFS.length; attempt++) {
+    let reasoning = "";
+    let answer = "";
+    let received = false;
+    const timeoutAc = new AbortController();
+    const userAbort = () => timeoutAc.abort();
+    opts.signal?.addEventListener("abort", userAbort, { once: true });
+    let stallTimer = null;
+    const resetStall = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(userAbort, STALL_TIMEOUT_MS);
+    };
+    resetStall();
+    try {
+      const res = await fetch(`${OPENCODE_BASE}/opencodeChat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body,
+        signal: timeoutAc.signal,
+      });
+      if (!res.ok || !res.body) {
+        const d = await res.json().catch(() => ({}));
+        lastErr = d.error || d.message || `خطأ ${res.status}`;
+        if (res.status === 429 || res.status >= 500 || res.status === 408) {
+          await wait(BACKOFFS[attempt]);
+          continue;
+        }
+        throw new Error(lastErr);
+      }
+      if (!(res.headers.get("content-type") ?? "").includes("event-stream")) {
+        const d = await res.json();
+        if (typeof d.content === "string" && d.content.trim()) {
+          opts.onReasoning?.(d.reasoning ?? "");
+          opts.onAnswer?.(d.content);
+          return d;
+        }
+        await wait(BACKOFFS[attempt]);
+        continue;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let done = null;
+      while (!done) {
+        const { value, done: end } = await reader.read();
+        if (end) break;
+        resetStall();
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const chunk = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          for (const line of chunk.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            const raw = line.slice(5).trim();
+            if (!raw || raw === "[DONE]") continue;
+            let ev;
+            try {
+              ev = JSON.parse(raw);
+            } catch {
+              continue;
+            }
+            if (ev["type"] === "reasoning" && typeof ev["text"] === "string") {
+              received = true;
+              reasoning += ev["text"];
+              opts.onReasoning?.(reasoning);
+            } else if (ev["type"] === "answer" && typeof ev["text"] === "string") {
+              received = true;
+              answer += ev["text"];
+              opts.onAnswer?.(answer);
+            } else if (ev["type"] === "done") {
+              done = {
+                content: typeof ev["content"] === "string" ? ev["content"] : answer,
+                reasoning: typeof ev["reasoning"] === "string" ? ev["reasoning"] : reasoning,
+                model: String(ev["model"] ?? opts.model),
+              };
+            } else if (ev["type"] === "error") {
+              throw new Error(String(ev["message"] ?? ev["error"] ?? "خطأ من النموذج"));
+            }
+          }
+        }
+      }
+      const result = done ?? { content: answer, reasoning };
+      if (result.content.trim()) return done ? result : { ...result, partial: true };
+      lastErr = "انقطع البث قبل اكتمال الرد.";
+      await wait(BACKOFFS[attempt]);
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      if (timeoutAc.signal.aborted && !opts.signal?.aborted) {
+        stalled = true;
+        console.warn("[streamChat] stalled — no data within 120s, retrying", { attempt });
+        lastErr = "توقف البث (لا بيانات لمدة 120 ثانية)؛ إعادة المحاولة.";
+      } else {
+        lastErr = e.message || lastErr;
+        console.warn("[streamChat] error", { attempt, lastErr });
+      }
+      if (answer.trim()) return { content: answer, reasoning, partial: true };
+      if (received) opts.onReasoning?.("");
+      if (attempt < BACKOFFS.length - 1) await wait(BACKOFFS[attempt]);
+    } finally {
+      if (stallTimer) clearTimeout(stallTimer);
+      opts.signal?.removeEventListener("abort", userAbort);
+    }
+  }
+  throw new Error(stalled
+    ? "توقف البث مرارًا بدون بيانات؛ تحقق من الشبكة وأعد المحاولة."
+    : lastErr.includes("502") || lastErr.includes("500") || lastErr.includes("503")
+      ? `النموذج مشغول (${lastErr}); أعد المحاولة.`
+      : lastErr);
+}
+
+export async function clearSession(session) {
+  await fetch(`${OPENCODE_BASE}/opencodeSessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "clear", session }),
+  }).catch(() => {});
+}
+
+/** Splits AI content into prose and the tsx code (if any). */
+export function extractCode(content) {
+  const m = content.match(/```(?:tsx|jsx|typescript|ts|javascript|js|react)?\s*\n([\s\S]*?)```/);
+  if (!m) return { text: content.trim(), code: null };
+  const text = content.replace(m[0], "").trim();
+  return { text, code: (m[1] ?? "").trim() };
+}

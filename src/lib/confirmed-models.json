@@ -1,0 +1,16 @@
+{
+  "tested_at": "2026-10-17T17:40:17.762Z",
+  "tested": 44,
+  "results": [
+    { "model": "cat-jam-free", "ok": true, "content": "hello" },
+    { "model": "beam-free", "ok": true, "content": "hello" },
+    { "model": "space-bunny-free", "ok": true, "content": "hello" },
+    { "model": "deepseek-v4.1-flash-free", "ok": true, "content": "hello" },
+    { "model": "mimo-v2.6-flash-free", "ok": true, "content": "hello" },
+    { "model": "exo-free", "ok": true, "content": "hello" },
+    { "model": "glm-5.3-flash-free", "ok": true, "content": "hello" },
+    { "model": "longcat-2.5-preview-free", "ok": true, "content": "hello" },
+    { "model": "big-pickle", "ok": true, "content": "hello" },
+    { "model": "nemotron-3.5-super-vl-free", "ok": true, "content": "hello" }
+  ]
+}
