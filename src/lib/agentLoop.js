@@ -326,11 +326,13 @@ export async function runAgentLoop(opts) {
           output = `Pushed to ${d.url} (commit ${d.commitSha}, ${d.files} files)`;
           tc.url = d.url;
         } else if (call.name === "generate_image") {
+          // Client-side, credit-free image generation via Pollinations — no Base44
+          // function call, no integration credits. The returned URL is a public
+          // image served on demand and embedded directly in the generated app.
           const imgPrompt = String(call.args.prompt || call.body || "").trim();
           if (!imgPrompt) throw new Error("generate_image requires a prompt");
-          const resp = await base44.functions.invoke("generateAsset", { prompt: imgPrompt });
-          const url = resp?.data?.url;
-          if (!url) throw new Error("Image generation returned no URL");
+          const seed = Math.floor(Math.random() * 1e6);
+          const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt.slice(0, 400))}?width=1024&height=576&nologo=true&seed=${seed}`;
           output = `Image URL: ${url}\nPrompt: ${imgPrompt}`;
           tc.url = url;
         } else if (call.name === "search_web") {
