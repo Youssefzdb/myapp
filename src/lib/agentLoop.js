@@ -357,7 +357,7 @@ export async function runAgentLoop(opts) {
           }
         } else if (call.name === "verify_preview") {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا…" });
-          const v = await captureAndVerifyPreview(files);
+          const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal });
           opts.onEvent({ type: "status", text: null });
           if (!v) throw new Error("screenshot failed");
           if (v.url) tc.url = v.url;
@@ -390,7 +390,7 @@ export async function runAgentLoop(opts) {
       if (files[ENTRY]) {
         try {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا قبل الإنهاء…" });
-          const v = await captureAndVerifyPreview(files);
+          const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal });
           if (v) verify = { ok: v.ok !== false, issues: v.issues || "", notes: v.notes || "" };
         } catch (e) {
           verify = { ok: true, issues: "", notes: "تعذّر التحقق البصري: " + String(e?.message || e) };

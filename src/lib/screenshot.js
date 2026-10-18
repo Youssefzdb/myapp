@@ -1,6 +1,7 @@
 import html2canvas from "html2canvas";
 import { buildPreviewHtml } from "./preview";
 import { base44 } from "@/api/base44Client";
+import { verifyScreenshot } from "./vision";
 
 /**
  * Render the generated project in a hidden same-origin iframe, run a FREE
@@ -13,7 +14,7 @@ import { base44 } from "@/api/base44Client";
  * something real". The screenshot is uploaded (storage only, no AI credits)
  * so the user/AI can also see the preview.
  */
-export async function captureAndVerifyPreview(files, width = 1024) {
+export async function captureAndVerifyPreview(files, width = 1024, opts = {}) {
   const html = buildPreviewHtml(files);
   if (!html || !/<div id="root"/.test(html)) {
     return { url: null, ok: true, issues: "", notes: "no preview" };
@@ -94,11 +95,25 @@ export async function captureAndVerifyPreview(files, width = 1024) {
       /* screenshot is best-effort; verification still works without it */
     }
 
+    // --- vision-based visual verification: the VL model actually sees the
+    // rendered screenshot, and when reference image(s) were sent, compares the
+    // preview to the user's clone target. ---
+    let vOk = true, vIssues = "", vNotes = "";
+    if (url) {
+      try {
+        const v = await verifyScreenshot(url, { task: opts.task, referenceUrls: opts.referenceImages }, opts.signal);
+        vOk = v.ok; vIssues = v.issues || ""; vNotes = v.notes || "";
+      } catch (e) {
+        if (opts.signal?.aborted) throw e;
+        vNotes = "تم تخطي التحقق البصري: " + String(e?.message || e);
+      }
+    }
+    const allIssues = [issues.join("\n"), vIssues].filter(Boolean).join("\n").trim();
     return {
       url,
-      ok: issues.length === 0,
-      issues: issues.join("\n"),
-      notes: issues.length === 0 ? `Rendered ${elemCount} elements.` : "",
+      ok: issues.length === 0 && vOk,
+      issues: allIssues,
+      notes: [issues.length === 0 ? `Rendered ${elemCount} elements.` : "", vNotes].filter(Boolean).join(" "),
     };
   } catch {
     return { url: null, ok: true, issues: "", notes: "verify skipped" };

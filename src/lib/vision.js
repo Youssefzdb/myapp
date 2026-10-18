@@ -42,3 +42,50 @@ export async function analyzeImages(imageUrls, signal) {
   if (!text) throw new Error("لم يُرجع تحليل الصورة محتوى");
   return text;
 }
+
+/**
+ * Vision-based verification of the LIVE preview screenshot. The free VL model
+ * actually "sees" the rendered preview and judges whether it rendered a real
+ * app — and, when reference image(s) the user sent are attached, how closely
+ * the preview matches the clone target. Returns { ok, issues, notes }.
+ */
+export async function verifyScreenshot(screenshotUrl, { task, referenceUrls } = {}, signal) {
+  const hasRef = Array.isArray(referenceUrls) && referenceUrls.length > 0;
+  const content = [];
+  content.push({
+    type: "text",
+    text:
+`You are a senior front-end reviewer verifying a LIVE rendered preview.${task ? ` The user's request: "${task}".` : ""}
+A screenshot of the rendered preview is attached${hasRef ? ", followed by the reference image(s) the user wanted to clone" : ""}.
+Check the preview for: blank/empty page, raw unstyled HTML, a visible error/crash, badly broken layout (overlapping/cut-off/giant text), and whether a real app actually rendered.${hasRef ? " ALSO judge how closely the preview matches the reference: section order, color palette, layout, spacing, typography, and visible content. List concrete fidelity gaps toward a 99-100% clone." : ""}
+Be lenient about minor polish and about empty data states — an empty-data state is NOT a failure.
+Respond ONLY with compact JSON: {"ok": boolean, "issues": string, "notes": string}. If ok is true, issues must be "". If ok is false, issues must be a concise numbered list of concrete problems to fix (not suggestions).`,
+  });
+  content.push({ type: "image_url", image_url: { url: screenshotUrl } });
+  if (hasRef) for (const u of referenceUrls) content.push({ type: "image_url", image_url: { url: u } });
+
+  const r = await fetch(`${OPENCODE_BASE}/opencodeChat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: [{ role: "user", content }],
+      model: VISION_MODEL,
+      system: "You are a precise visual reviewer. Output JSON only.",
+      stream: false,
+    }),
+    signal,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d?.error || d?.message || `فشل التحقق البصري (${r.status})`);
+  const raw = String(d.content || "").trim();
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch {
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) { try { parsed = JSON.parse(m[0]); } catch {} }
+  }
+  if (parsed && typeof parsed.ok === "boolean") {
+    return { ok: parsed.ok, issues: String(parsed.issues || ""), notes: String(parsed.notes || "") };
+  }
+  // Unparseable verdict — don't block the build; pass with the raw note.
+  return { ok: true, issues: "", notes: raw.slice(0, 200) };
+}

@@ -299,10 +299,12 @@ export default function Playground() {
 
     setPendingImages([]);
 
+    let referenceUrls = [];
     let enriched = prompt;
     if (attached.length) {
       const entries = (await Promise.all(attached.map((x) => uploadPromises.current[x.id]))).filter(Boolean);
       const urls = entries.map((e) => e.url).filter(Boolean);
+      referenceUrls = urls;
       if (urls.length) {
         try {
           const spec = await analyzeImages(urls, ctrl.signal);
@@ -349,6 +351,8 @@ export default function Playground() {
 
       const result = await runAgentLoop({
         prompt: enriched,
+        task: prompt,
+        referenceImages: referenceUrls,
         history,
         model,
         files: currentFiles,
