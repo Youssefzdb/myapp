@@ -29,8 +29,12 @@ export async function captureAndVerifyPreview(files, width = 1024, opts = {}) {
   document.body.appendChild(holder);
 
   let ready = false;
+  const errors = [];
   const onMsg = (e) => {
-    if (e && e.data && e.data.type === "vibe-preview-ready") ready = true;
+    if (!e || !e.data) return;
+    if (e.data.type === "vibe-preview-ready") ready = true;
+    else if (e.data.type === "vibe-preview-error") errors.push("runtime: " + (e.data.message || ""));
+    else if (e.data.type === "vibe-error") errors.push((e.data.kind || "console") + ": " + (e.data.message || ""));
   };
   window.addEventListener("message", onMsg);
 
@@ -77,6 +81,9 @@ export async function captureAndVerifyPreview(files, width = 1024, opts = {}) {
     if (elemCount < 6) {
       issues.push("Preview is mostly empty (very few elements rendered).");
     }
+    if (errors.length) {
+      issues.push("Console/runtime errors from the live preview:\n" + errors.slice(0, 8).map((e) => "- " + String(e).slice(0, 240)).join("\n"));
+    }
 
     // --- capture a real screenshot as an in-memory data URL (no upload, no
     // integration credits) so the vision model can actually see the render ---
@@ -109,9 +116,62 @@ export async function captureAndVerifyPreview(files, width = 1024, opts = {}) {
       ok: issues.length === 0 && vOk,
       issues: allIssues,
       notes: [issues.length === 0 ? `Rendered ${elemCount} elements.` : "", vNotes].filter(Boolean).join(" "),
+      consoleErrors: errors,
     };
   } catch {
     return { url: null, ok: true, issues: "", notes: "verify skipped" };
+  } finally {
+    window.removeEventListener("message", onMsg);
+    if (holder.parentNode) document.body.removeChild(holder);
+  }
+}
+
+/**
+ * Lightweight error-only probe: render the project in a hidden iframe and
+ * collect console.error/warn + runtime + unhandled-rejection messages. No
+ * screenshot, no vision — used to auto-feed preview errors back to the agent
+ * so it can self-correct during the loop. Returns a deduped string[].
+ */
+export async function capturePreviewErrors(files, opts = {}) {
+  const html = buildPreviewHtml(files);
+  if (!html || !/<div id="root"/.test(html)) return [];
+  const width = 1024, height = 768;
+  const holder = document.createElement("div");
+  holder.style.cssText = `position:fixed;left:-99999px;top:0;width:${width}px;height:${height}px;z-index:-1;`;
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-popups");
+  frame.style.cssText = `width:${width}px;height:${height}px;border:0;background:#fff;`;
+  holder.appendChild(frame);
+  document.body.appendChild(holder);
+
+  const errors = [];
+  let ready = false;
+  const onMsg = (e) => {
+    if (!e || !e.data) return;
+    if (e.data.type === "vibe-preview-ready") ready = true;
+    else if (e.data.type === "vibe-preview-error") errors.push("runtime: " + (e.data.message || ""));
+    else if (e.data.type === "vibe-error") errors.push((e.data.kind || "console") + ": " + (e.data.message || ""));
+  };
+  window.addEventListener("message", onMsg);
+  try {
+    opts.signal?.throwIfAborted();
+    frame.srcdoc = html;
+    await new Promise((res) => { frame.onload = () => res(); setTimeout(res, 3000); });
+    const t0 = Date.now();
+    while (!ready && Date.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 300));
+    // backup read of in-iframe buffer (same-origin)
+    try {
+      const w = frame.contentWindow;
+      if (w && Array.isArray(w.__vibeErrors)) for (const e of w.__vibeErrors) errors.push(e.kind + ": " + e.message);
+    } catch { /* cross-origin */ }
+    const seen = new Set();
+    return errors
+      .filter((e) => { const k = e.slice(0, 120); if (seen.has(k)) return false; seen.add(k); return true; })
+      .slice(0, 10);
+  } catch (e) {
+    if (opts.signal?.aborted) throw e;
+    return [];
   } finally {
     window.removeEventListener("message", onMsg);
     if (holder.parentNode) document.body.removeChild(holder);

@@ -142,6 +142,29 @@ window.addEventListener('message', function(e) {
 });
 `;
 
+// Auto error capture: forward console.error/warn to the parent so the agent
+// loop can self-correct. Runtime (uncaught) errors are already posted by the
+// runtime as `vibe-preview-error`; this shim adds console errors/warnings on
+// top (React logs caught errors and warnings via console, not via onerror).
+const ERR_SHIM = `
+window.__vibeErrors = [];
+(function(){
+  function report(kind, args){
+    try {
+      var msg = Array.prototype.map.call(args, function(a){
+        try { return a && typeof a === 'object' ? (a.stack || a.message || JSON.stringify(a)) : String(a); } catch(e){ return String(a); }
+      }).join(' ');
+      window.__vibeErrors.push({ kind: kind, message: msg });
+      parent.postMessage({ type: 'vibe-error', kind: kind, message: msg }, '*');
+    } catch(e){}
+  }
+  ['error','warn'].forEach(function(level){
+    var orig = console[level] ? console[level].bind(console) : function(){};
+    console[level] = function(){ report(level, arguments); orig.apply(console, arguments); };
+  });
+})();
+`;
+
 /** Builds a self-contained HTML document that compiles and renders a multi-file React project. */
 export function buildPreviewHtml(input, storage = {}) {
   const files = typeof input === "string" ? { [ENTRY]: input } : (input ?? {});
@@ -165,6 +188,7 @@ document.addEventListener('click',function(e){if(e.defaultPrevented)return;var a
 document.addEventListener('submit',function(e){if(!e.defaultPrevented)e.preventDefault();});
 ${BACKEND_SHIM}
 ${NAV_SHIM}
+${ERR_SHIM}
 try{(${runtime.toString()})(${safe(files)},${safe(files[ENTRY] ? ENTRY : Object.keys(files)[0])});}catch(e){__showErr(e)}
 </script></body></html>`;
 }

@@ -7,7 +7,7 @@ import { streamChat } from "./opencode";
 import { base44 } from "@/api/base44Client";
 import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports, normalizePath, undefinedComponents, emptyFiles } from "./files";
 import { buildProjectFiles } from "./preview";
-import { captureAndVerifyPreview } from "./screenshot";
+import { captureAndVerifyPreview, capturePreviewErrors } from "./screenshot";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. You build professional apps with a React + TypeScript + Tailwind FRONTEND in src/ AND a declarative REST BACKEND in server/. Frontend files (8-25 focused): src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -404,6 +404,18 @@ export async function runAgentLoop(opts) {
       convo.push({ role: "assistant", content: `${thought}\n<action name="finish">${pendingFinish}</action>` });
       convo.push({ role: "user", content: `A visual screenshot check of the live preview ran before finishing and found these issues:\n${verify.issues}\n\nFix EVERY issue with write_file/edit_file, then call finish again. Actually change the code — do not just restate the summary.` });
       continue;
+    }
+
+    // Auto-detect runtime/console errors from a hidden render of the current
+    // files and feed them back to the AI so it can self-correct (internal).
+    if (changed && Object.keys(files).length && files[ENTRY]) {
+      try {
+        const errs = await capturePreviewErrors(files, { signal: opts.signal });
+        if (errs.length) {
+          const listed = errs.slice(0, 8).map((e) => "- " + String(e).slice(0, 240)).join("\n");
+          toolResults.push(`<runtime-errors>The live preview threw these errors when rendering the current files. Fix them before calling finish:\n${listed}</runtime-errors>`);
+        }
+      } catch (e) { if (opts.signal?.aborted) throw e; }
     }
 
     const compressed = calls.map((c) => {
