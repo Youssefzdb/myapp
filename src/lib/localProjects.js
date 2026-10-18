@@ -28,6 +28,20 @@ export function saveLocalProject({ title, prompt, code_uri }) {
   return entry;
 }
 
+export function updateLocalProject(id, { title, prompt, code_uri }) {
+  const list = getLocalProjects();
+  const i = list.findIndex((p) => p.id === id);
+  if (i < 0) return null;
+  list[i] = {
+    ...list[i],
+    title: title != null ? title : list[i].title,
+    prompt: prompt != null ? prompt : list[i].prompt,
+    code_uri: code_uri != null ? code_uri : list[i].code_uri,
+  };
+  localStorage.setItem(KEY, JSON.stringify(list));
+  return list[i];
+}
+
 export function deleteLocalProject(id) {
   const list = getLocalProjects().filter((p) => p.id !== id);
   localStorage.setItem(KEY, JSON.stringify(list));

@@ -13,8 +13,8 @@ import { buildProjectFiles } from '@/lib/preview';
 import { pushProjectToGithub } from '@/lib/github';
 import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
 import { useAuth } from '@/lib/AuthContext';
-import { getSession, addProject } from '@/lib/customAuth';
-import { saveLocalProject } from '@/lib/localProjects';
+import { getSession, addProject, updateProject } from '@/lib/customAuth';
+import { saveLocalProject, updateLocalProject } from '@/lib/localProjects';
 
 // Scope playground state per account so one user never sees another's draft.
 const lsKey = () => {
@@ -127,6 +127,9 @@ export default function Playground() {
   const sessionRef = useRef(newSession());
   const abortRef = useRef(null);
   const lastUploadAt = useRef(0);
+  // One project entry per conversation: created on first generation, updated
+  // on every following message so a conversation isn't saved as many projects.
+  const projectRef = useRef({ localId: null, accountId: null });
   const [previewId, setPreviewId] = useState(null);
   const filesRef = useRef({});
   const previewIdRef = useRef(null);
@@ -484,15 +487,30 @@ export default function Playground() {
         } catch { /* field-size guard; the session still works locally */ }
       }
 
-      // Save the project so it appears on Home. The local list always writes
-      // (works without login and even when file upload is unavailable); the
-      // signed-in user's Account list is also updated when a code file exists.
+      // Save the project so it appears on Home. One entry per conversation:
+      // created on the first generation, then updated on each following message
+      // (so a conversation isn't saved as many separate projects).
       if (result.changed && Object.keys(result.files).length) {
         let saveUri = null;
         try { saveUri = await uploadCodePrivate(result.files); } catch { /* upload unavailable */ }
-        try { saveLocalProject({ title: prompt.slice(0, 60), prompt, code_uri: saveUri || "" }); } catch {}
-        if (saveUri && getSession()) {
-          try { await addProject({ title: prompt.slice(0, 60), prompt, code_uri: saveUri }); } catch {}
+        const title = prompt.slice(0, 60);
+        if (projectRef.current.localId) {
+          try { updateLocalProject(projectRef.current.localId, { prompt, code_uri: saveUri || "" }); } catch {}
+        } else {
+          try {
+            const entry = saveLocalProject({ title, prompt, code_uri: saveUri || "" });
+            projectRef.current.localId = entry.id;
+          } catch {}
+        }
+        if (getSession()) {
+          if (projectRef.current.accountId) {
+            try { await updateProject(projectRef.current.accountId, { prompt, code_uri: saveUri || "" }); } catch {}
+          } else if (saveUri) {
+            try {
+              const entry = await addProject({ title, prompt, code_uri: saveUri });
+              projectRef.current.accountId = entry.id;
+            } catch {}
+          }
         }
       }
 
@@ -533,6 +551,7 @@ export default function Playground() {
   const resetChat = () => {
     abortRef.current?.abort();
     try { localStorage.removeItem(lsKey()); } catch {}
+    projectRef.current = { localId: null, accountId: null };
     setSessionId(null);
     setMessages([WELCOME]);
     setVersions([]);

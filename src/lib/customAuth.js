@@ -58,6 +58,24 @@ export function getProjects() {
   return getSession()?.projects || [];
 }
 
+export async function updateProject(id, { title, prompt, code_uri }) {
+  const s = getSession();
+  if (!s) return;
+  const acc = await base44.entities.Account.get(s.id);
+  const projects = Array.isArray(acc.projects) ? [...acc.projects] : [];
+  const i = projects.findIndex((p) => p.id === id);
+  if (i < 0) return;
+  projects[i] = {
+    ...projects[i],
+    title: title != null ? title : projects[i].title,
+    prompt: prompt != null ? prompt : projects[i].prompt,
+    code_uri: code_uri != null ? code_uri : projects[i].code_uri,
+  };
+  await base44.entities.Account.update(s.id, { projects });
+  const updated = { ...s, projects };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+}
+
 export async function addProject({ title, prompt, code_uri }) {
   const s = getSession();
   if (!s) throw new Error("غير مسجّل");
