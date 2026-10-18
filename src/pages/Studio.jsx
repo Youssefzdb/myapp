@@ -60,7 +60,7 @@ export default function Studio() {
             <Sparkles className="w-3.5 h-3.5 text-primary" />من فكرة إلى فيديو — بالكامل في المتصفح
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">استوديو الفيديو</h2>
-          <p className="mt-3 text-muted-foreground max-w-xl mx-auto">صِف فكرتك، يكتب الـ AI السيناريو ويفكّكه إلى لقطات، ويولّد لوحة عمل وصوتًا — ثم يُشغّل الفيديو فورًا.</p>
+          <p className="mt-3 text-muted-foreground max-w-xl mx-auto">صِف فكرتك، يكتب الـ AI السيناريو ويولّد الإطارات، ثم يُحرّكها في فيديو سينمائي متواصل مع صوت تعليق — فورًا في المتصفح.</p>
         </div>
 
         <div className="rounded-2xl border bg-card p-5">
