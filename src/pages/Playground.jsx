@@ -8,7 +8,8 @@ import PreviewPanel from '@/components/playground/PreviewPanel';
 import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
 import { runAgentLoop } from '@/lib/agentLoop';
 import { analyzeImages, extractImageUrls } from '@/lib/vision';
-import { serializeFiles, extractFiles, ENTRY } from '@/lib/files';
+import { extractFiles, ENTRY } from '@/lib/files';
+import { saveLocalCode, readLocalCode, isLocalCodeUri } from '@/lib/localCode';
 import { buildProjectFiles } from '@/lib/preview';
 import { pushProjectToGithub } from '@/lib/github';
 import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
@@ -72,21 +73,17 @@ const toFront = (m) => ({
   live: null,
 });
 
-// Persist large generated code as a private file and store its uri — the entity
-// `code` field can't hold a full multi-file project (size limit), so we upload it
-// (stored privately) and keep only the file_uri; restore signs it on demand.
-const uploadCodePrivate = async (files) => {
-  const serialized = serializeFiles(files);
-  if (!serialized.trim()) return null;
-  const blob = new Blob([serialized], { type: 'text/plain' });
-  const file = new File([blob], `vibe-code-${Date.now()}.txt`, { type: 'text/plain' });
-  const { file_uri } = await base44.integrations.Core.UploadPrivateFile({ file });
-  return file_uri;
-};
+// Persist the generated project code in the browser (localStorage) — no Base44
+// upload, no integration credits. One local key per project is reused across
+// updates so storage never accumulates duplicate blobs. Returns a local handle
+// "local:<key>" used everywhere the old file_uri was used.
+const uploadCodePrivate = async (files, existingUri = null) => saveLocalCode(files, existingUri);
 
-const fetchCodeUri = async (file_uri) => {
+const fetchCodeUri = async (code_uri) => {
   try {
-    const { signed_url } = await base44.integrations.Core.CreateFileSignedUrl({ file_uri });
+    if (isLocalCodeUri(code_uri)) return readLocalCode(code_uri) || '';
+    // Legacy Base44 private-file handles (credits currently exhausted) — best effort.
+    const { signed_url } = await base44.integrations.Core.CreateFileSignedUrl({ file_uri: code_uri });
     if (!signed_url) return '';
     const r = await fetch(signed_url);
     if (!r.ok) return '';
@@ -129,7 +126,7 @@ export default function Playground() {
   const lastUploadAt = useRef(0);
   // One project entry per conversation: created on first generation, updated
   // on every following message so a conversation isn't saved as many projects.
-  const projectRef = useRef({ localId: null, accountId: null });
+  const projectRef = useRef({ localId: null, accountId: null, codeUri: null });
   const [previewId, setPreviewId] = useState(null);
   const filesRef = useRef({});
   const previewIdRef = useRef(null);
@@ -415,8 +412,9 @@ export default function Playground() {
             }));
           } else if (ev.type === 'files') {
             setLiveFiles(ev.files);
-            // Persist the live code to private storage (throttled to avoid over-uploading);
-            // the entity `code` field can't hold the full project, so we store a file_uri.
+            // Persist the live code to local browser storage (throttled). One
+            // local key per project is reused so storage never accumulates
+            // duplicate blobs across streamed updates / messages.
             if (Object.keys(ev.files).length) {
               const n = (versions[versions.length - 1]?.n ?? 0) + 1;
               lastVersion = n;
@@ -424,14 +422,14 @@ export default function Playground() {
                 const now = Date.now();
                 if (now - lastUploadAt.current > 3000) {
                   lastUploadAt.current = now;
-                  uploadCodePrivate(ev.files)
-                    .then((uri) =>
-                      uri
-                        ? base44.entities.Message
-                            .update(asstDbId, { code_uri: uri, version: n, status: 'streaming' })
-                            .catch(() => {})
-                        : null
-                    )
+                  uploadCodePrivate(ev.files, projectRef.current.codeUri)
+                    .then((uri) => {
+                      if (!uri) return null;
+                      projectRef.current.codeUri = uri;
+                      return base44.entities.Message
+                        .update(asstDbId, { code_uri: uri, version: n, status: 'streaming' })
+                        .catch(() => {});
+                    })
                     .catch(() => {});
                 }
               }
@@ -466,12 +464,20 @@ export default function Playground() {
         )
       );
 
-      // Final update: upload the final project to private storage and store its uri
+      // Persist the final project to local browser storage ONCE (reusing the
+      // same local key the streamed updates already wrote to) — no Base44
+      // upload, no integration credits. The same handle feeds the session
+      // message and the Home project entry.
+      let saveUri = null;
+      if (result.changed && Object.keys(result.files).length) {
+        try {
+          saveUri = await uploadCodePrivate(result.files, projectRef.current.codeUri);
+          if (saveUri) projectRef.current.codeUri = saveUri;
+        } catch { /* storage unavailable */ }
+      }
+
+      // Final update for the assistant message record.
       if (persist && asstDbId) {
-        let codeUri = null;
-        if (result.changed) {
-          try { codeUri = await uploadCodePrivate(result.files); } catch {}
-        }
         // Truncate large tool-call fields so the record stays within the
         // entity field size limit (full code lives in code_uri instead).
         const MAX = 1500;
@@ -486,7 +492,7 @@ export default function Playground() {
         try {
           await base44.entities.Message.update(asstDbId, {
             content: (result.summary || 'تم بناء التطبيق').slice(0, 4000),
-            code_uri: codeUri ?? undefined,
+            code_uri: saveUri ?? undefined,
             version: versionBump ?? lastVersion,
             tool_calls: safeToolCalls,
             status: 'done',
@@ -498,8 +504,6 @@ export default function Playground() {
       // created on the first generation, then updated on each following message
       // (so a conversation isn't saved as many separate projects).
       if (result.changed && Object.keys(result.files).length) {
-        let saveUri = null;
-        try { saveUri = await uploadCodePrivate(result.files); } catch { /* upload unavailable */ }
         const title = prompt.slice(0, 60);
         if (projectRef.current.localId) {
           try { updateLocalProject(projectRef.current.localId, { prompt, code_uri: saveUri || "" }); } catch {}
@@ -558,7 +562,7 @@ export default function Playground() {
   const resetChat = () => {
     abortRef.current?.abort();
     try { localStorage.removeItem(lsKey()); } catch {}
-    projectRef.current = { localId: null, accountId: null };
+    projectRef.current = { localId: null, accountId: null, codeUri: null };
     setSessionId(null);
     setMessages([WELCOME]);
     setVersions([]);
