@@ -14,6 +14,7 @@ import { pushProjectToGithub } from '@/lib/github';
 import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
 import { useAuth } from '@/lib/AuthContext';
 import { getSession, addProject } from '@/lib/customAuth';
+import { saveLocalProject } from '@/lib/localProjects';
 
 // Scope playground state per account so one user never sees another's draft.
 const lsKey = () => {
@@ -483,12 +484,16 @@ export default function Playground() {
         } catch { /* field-size guard; the session still works locally */ }
       }
 
-      // Save the project to the signed-in user's private list (each user sees only their own)
-      if (result.changed && Object.keys(result.files).length && getSession()) {
-        try {
-          const saveUri = await uploadCodePrivate(result.files);
-          if (saveUri) await addProject({ title: prompt.slice(0, 60), prompt, code_uri: saveUri });
-        } catch { /* best-effort */ }
+      // Save the project so it appears on Home. The local list always writes
+      // (works without login and even when file upload is unavailable); the
+      // signed-in user's Account list is also updated when a code file exists.
+      if (result.changed && Object.keys(result.files).length) {
+        let saveUri = null;
+        try { saveUri = await uploadCodePrivate(result.files); } catch { /* upload unavailable */ }
+        try { saveLocalProject({ title: prompt.slice(0, 60), prompt, code_uri: saveUri || "" }); } catch {}
+        if (saveUri && getSession()) {
+          try { await addProject({ title: prompt.slice(0, 60), prompt, code_uri: saveUri }); } catch {}
+        }
       }
 
       // Auto-push to the user's GitHub if enabled and connected

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles, Zap, Code2, Rocket, ArrowLeft, FolderOpen, Plus, LogIn, LogOut, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSession, getProjects, logoutAccount } from '@/lib/customAuth';
+import { getLocalProjects } from '@/lib/localProjects';
 import AnimatedBackground from '@/components/AnimatedBackground';
 
 const FEATURES = [
@@ -26,7 +27,18 @@ export default function Home() {
   useEffect(() => {
     const s = getSession();
     setSession(s);
-    if (s) setProjects(getProjects());
+    // Merge browser-local projects (always) with the signed-in account list,
+    // deduped by code_uri so the same project isn't shown twice.
+    const local = getLocalProjects();
+    const acct = s ? getProjects() : [];
+    const seen = new Set();
+    const merged = [...local, ...acct].filter((p) => {
+      const k = p.code_uri || p.id;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    setProjects(merged);
   }, []);
 
   const openProject = (p) => {
@@ -120,17 +132,12 @@ export default function Home() {
           )}
         </div>
 
-        {!session ? (
-          <div className="rounded-2xl border bg-card p-10 text-center">
-            <p className="text-muted-foreground text-sm mb-4">سجّل الدخول لعرض مشاريعك المحفوظة وإنشاء مشاريع جديدة خاصة بك.</p>
-            <Button asChild><Link to="/login">تسجيل الدخول</Link></Button>
-          </div>
-        ) : projects.length === 0 ? (
+        {projects.length === 0 ? (
           <div className="rounded-2xl border border-dashed bg-card p-10 text-center">
             <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
               <Code2 className="w-5 h-5 text-muted-foreground" />
             </div>
-            <p className="text-sm text-muted-foreground mb-4">لا توجد مشاريع بعد. ابدأ أول مشروع لك الآن.</p>
+            <p className="text-sm text-muted-foreground mb-4">{session ? 'لا توجد مشاريع بعد. ابدأ أول مشروع لك الآن.' : 'لا توجد مشاريع بعد. ابدأ البناء وستظهر مشاريعك هنا تلقائيًا.'}</p>
             <Button asChild><Link to="/playground"><Plus className="w-4 h-4 ml-1" />إنشاء مشروع</Link></Button>
           </div>
         ) : (
