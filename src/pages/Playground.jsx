@@ -260,10 +260,17 @@ export default function Playground() {
       setPendingImages((p) => [...p, { id, name: file.name, preview, uploading: true }]);
       uploadPromises.current[id] = (async () => {
         try {
-          const { file_uri } = await base44.integrations.Core.UploadPrivateFile({ file });
-          const { signed_url } = await base44.integrations.Core.CreateFileSignedUrl({ file_uri, expires_in: 1800 });
+          // Convert the attached image to a data URL entirely in the browser —
+          // no Base44 upload, no integration credits. The data URL is passed
+          // straight to the free vision model (opencodeChat).
+          const dataUrl = await new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(String(r.result));
+            r.onerror = () => reject(new Error('read failed'));
+            r.readAsDataURL(file);
+          });
           setPendingImages((p) => p.map((x) => (x.id === id ? { ...x, uploading: false } : x)));
-          return { id, name: file.name, preview, url: signed_url };
+          return { id, name: file.name, preview, url: dataUrl };
         } catch (e) {
           setPendingImages((p) => p.filter((x) => x.id !== id));
           URL.revokeObjectURL(preview);
