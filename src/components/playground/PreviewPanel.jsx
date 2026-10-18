@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Eye, Code, Monitor, Tablet, Smartphone, Copy, Download, Check, Files, ArrowLeft, ArrowRight, RotateCw, Globe, Database } from 'lucide-react';
+import { Eye, Code, Monitor, Tablet, Smartphone, Copy, Download, Check, Files, ArrowLeft, ArrowRight, RotateCw, Globe, Database, List } from 'lucide-react';
 import CodeView from './CodeView';
 import FileTree from './FileTree';
 import ApiExplorer from './ApiExplorer';
 import { buildPreviewHtml } from '@/lib/preview';
 import { serializeFiles, totalLines } from '@/lib/files';
+import { detectPages } from '@/lib/pages';
 
 const DEVICES = { desktop: '100%', tablet: '768px', mobile: '390px' };
 
@@ -29,6 +30,9 @@ export default function PreviewPanel({
   const [history, setHistory] = useState(['/']);
   const [idx, setIdx] = useState(0);
   const [routeInput, setRouteInput] = useState('/');
+  const [showPages, setShowPages] = useState(false);
+
+  const pages = useMemo(() => detectPages(files), [files]);
 
   const fileCount = Object.keys(files).length;
   const lineCount = useMemo(() => totalLines(files), [files]);
@@ -66,11 +70,12 @@ export default function PreviewPanel({
     const win = iframeRef.current?.contentWindow;
     if (win) win.postMessage({ type: 'vibe-navigate', route }, '*');
   };
-  const go = () => {
-    let r = routeInput.trim() || '/';
+  const go = (override) => {
+    let r = (override ?? routeInput).trim() || '/';
     if (r.charAt(0) !== '/' && r.charAt(0) !== '?') r = '/' + r;
     setHistory((h) => { const nh = h.slice(0, idx + 1); nh.push(r); return nh; });
     setIdx((i) => i + 1);
+    setRouteInput(r);
     postNavigate(r);
   };
   const back = () => {
@@ -189,7 +194,7 @@ export default function PreviewPanel({
         {view === 'preview' ? (
           <div className="flex flex-col w-full flex-1 min-h-0">
             {/* Address bar — navigate the app's virtual routes */}
-            <div className="h-10 shrink-0 flex items-center gap-1 px-2 border-b bg-background">
+            <div className="relative h-10 shrink-0 flex items-center gap-1 px-2 border-b bg-background">
               <button onClick={back} disabled={idx <= 0} className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted disabled:opacity-30" title="رجوع">
                 <ArrowRight className="w-4 h-4" />
               </button>
@@ -210,6 +215,32 @@ export default function PreviewPanel({
                   className="flex-1 bg-transparent text-sm font-mono outline-none min-w-0"
                 />
               </div>
+              <button
+                onClick={() => setShowPages((s) => !s)}
+                className={`inline-flex items-center gap-1 h-8 rounded-md border px-2 text-xs ${showPages ? 'bg-muted' : 'text-muted-foreground'}`}
+                title="كل الصفحات"
+              >
+                <List className="w-3.5 h-3.5" />الصفحات
+              </button>
+
+              {/* Vertical list of all detected pages */}
+              {showPages && (
+                <div className="absolute z-20 left-2 right-2 top-11 max-h-72 overflow-auto rounded-md border bg-background shadow-lg">
+                  <div className="px-2.5 py-1.5 text-xs text-muted-foreground border-b sticky top-0 bg-background">
+                    الصفحات ({pages.length})
+                  </div>
+                  {pages.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => { go(p); setShowPages(false); }}
+                      className={`w-full text-left px-2.5 py-2 text-sm font-mono hover:bg-muted border-b last:border-0 ${p === (history[idx] || '/') ? 'bg-muted/60' : ''}`}
+                      dir="ltr"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="flex-1 min-h-0 flex items-start justify-center p-3 overflow-auto bg-muted/30">
               <div style={{ width: DEVICES[device], maxWidth: '100%' }} className="h-full mx-auto">
