@@ -341,36 +341,35 @@ export async function runAgentLoop(opts) {
           const resp = await base44.functions.invoke("searchWeb", { query: q });
           output = String(resp?.data?.content || "").trim() || "No results.";
         } else if (call.name === "fetch_website") {
-          // Client-side fetch through a free CORS proxy — no Base44 function,
-          // no integration credits. Mirrors the old fetchPage backend output
-          // (stripped HTML text, truncated).
+          // Client-side fetch through free readers — no Base44 function, no
+          // integration credits. Jina Reader returns clean markdown (preferred);
+          // allorigins raw is the fallback. Both send permissive CORS headers.
           const u = String(call.args.url || "").trim();
           if (!u) throw new Error("fetch_website requires a url");
           if (!/^https?:\/\//i.test(u)) throw new Error("Invalid URL");
-          let html = "";
+          let text = "";
           try {
-            const proxied = "https://api.allorigins.win/raw?url=" + encodeURIComponent(u);
-            const r = await fetch(proxied, { signal: opts.signal });
+            const r = await fetch("https://r.jina.ai/" + u, { signal: opts.signal });
             if (!r.ok) throw new Error("HTTP " + r.status);
-            html = await r.text();
+            text = await r.text();
           } catch (e) {
             if (opts.signal?.aborted) throw e;
-            const r2 = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(u), { signal: opts.signal }).catch(() => null);
-            if (!r2 || !r2.ok) throw new Error("fetch failed");
-            html = await r2.text();
+            const r2 = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(u), { signal: opts.signal }).catch(() => null);
+            if (!r2 || !r2.ok) throw new Error("fetch failed: " + (e?.message || "no proxy"));
+            const html = await r2.text();
+            text = html
+              .replace(/<script[\s\S]*?<\/script>/gi, " ")
+              .replace(/<style[\s\S]*?<\/style>/gi, " ")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/&nbsp;/g, " ")
+              .replace(/&/g, "&")
+              .replace(/</g, "<")
+              .replace(/>/g, ">")
+              .replace(/"/g, '"')
+              .replace(/\s+/g, " ")
+              .trim();
           }
-          output = html
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/&nbsp;/g, " ")
-            .replace(/&/g, "&")
-            .replace(/</g, "<")
-            .replace(/>/g, ">")
-            .replace(/"/g, '"')
-            .replace(/\s+/g, " ")
-            .trim();
-          if (!output) output = "Empty page.";
+          output = text.trim() || "Empty page.";
           if (output.length > 8000) output = output.slice(0, 8000) + "…[truncated]";
         } else if (call.name === "skill_list") {
           const q = String(call.args.query || call.body || "").trim();
