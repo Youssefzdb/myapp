@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Sparkles, Zap, Code2, Rocket, ArrowLeft, FolderOpen, Plus, LogIn, LogOut, Clock } from 'lucide-react';
+import { Sparkles, Zap, Code2, Rocket, ArrowLeft, FolderOpen, Plus, LogIn, LogOut, Clock, Clapperboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getSession, getProjects, logoutAccount } from '@/lib/customAuth';
 import { getLocalProjects } from '@/lib/localProjects';
@@ -62,6 +62,9 @@ export default function Home() {
           <div className="flex items-center gap-2">
             {session ? (
               <div className="flex items-center gap-2">
+                <Button asChild variant="ghost" size="sm">
+                  <Link to="/studio"><Clapperboard className="w-4 h-4 ml-1" />الاستوديو</Link>
+                </Button>
                 <Button asChild size="sm">
                   <Link to="/playground"><Plus className="w-4 h-4 ml-1" />مشروع جديد</Link>
                 </Button>
@@ -71,6 +74,7 @@ export default function Home() {
               </div>
             ) : (
               <>
+                <Button asChild variant="ghost" size="sm"><Link to="/studio"><Clapperboard className="w-4 h-4 ml-1" />الاستوديو</Link></Button>
                 <Button asChild variant="ghost" size="sm"><Link to="/login">دخول</Link></Button>
                 <Button asChild size="sm"><Link to="/register">إنشاء حساب</Link></Button>
               </>
