@@ -32,6 +32,7 @@ export async function generateVideoPlan({ idea, model, effort, signal, onStatus 
   onStatus?.("يكتب السيناريو ويفكّك اللقطات…");
   const res = await sendChat({
     prompt: `Idea:\n"""\n${idea}\n"""\n\nReturn the JSON video plan now.`,
+    history: [],
     model,
     effort,
     system: SYSTEM,
