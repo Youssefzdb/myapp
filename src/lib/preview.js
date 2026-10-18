@@ -120,6 +120,28 @@ window.fetch = function(input, init) {
 };
 `;
 
+// Virtual route navigation: the address bar in the preview panel posts
+// `vibe-navigate`, the iframe sets its hash and echoes `vibe-route` back so the
+// parent's history (back/forward) stays in sync. Internal <a href="/x"> links
+// navigate the same way instead of being dead-prevented.
+const NAV_SHIM = `
+window.__vibeNavigate = function(route) {
+  route = String(route || '/'); if (route.charAt(0) !== '/' && route.charAt(0) !== '?') route = '/' + route;
+  if (location.hash !== '#' + route) location.hash = route;
+  parent.postMessage({ type: 'vibe-route', route: route }, '*');
+};
+window.addEventListener('hashchange', function() {
+  var r = location.hash ? location.hash.slice(1) : '/';
+  parent.postMessage({ type: 'vibe-route', route: r }, '*');
+});
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'vibe-navigate') {
+    var r = String(e.data.route || '/');
+    if (location.hash !== '#' + r) location.hash = r;
+  }
+});
+`;
+
 /** Builds a self-contained HTML document that compiles and renders a multi-file React project. */
 export function buildPreviewHtml(input, storage = {}) {
   const files = typeof input === "string" ? { [ENTRY]: input } : (input ?? {});
@@ -139,9 +161,10 @@ Object.defineProperty(window,'localStorage',{value:__storage});
 function __showErr(e){var message=String(e&&e.message||e);var el=document.getElementById('__err');el.style.display='block';el.textContent='⚠ '+message;parent.postMessage({type:'vibe-preview-error',message:message},'*');}
 window.addEventListener('error',function(e){__showErr(e.error||e.message)});
 window.addEventListener('unhandledrejection',function(e){__showErr(e.reason)});
-document.addEventListener('click',function(e){if(e.defaultPrevented)return;var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href')||'';e.preventDefault();if(h.charAt(0)==='#'){if(h.length>1){var t=document.getElementById(decodeURIComponent(h.slice(1)));if(t)t.scrollIntoView({behavior:'smooth'})}else window.scrollTo({top:0,behavior:'smooth'});return}if(/^(https?:|mailto:|tel:)/i.test(h))window.open(h,'_blank','noopener');});
+document.addEventListener('click',function(e){if(e.defaultPrevented)return;var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.getAttribute('href')||'';e.preventDefault();if(h.charAt(0)==='#'){if(h.length>1){var t=document.getElementById(decodeURIComponent(h.slice(1)));if(t)t.scrollIntoView({behavior:'smooth'})}else window.scrollTo({top:0,behavior:'smooth'});return}if(h.charAt(0)==='/'||h.charAt(0)==='?'){window.__vibeNavigate(h);return}if(/^(https?:|mailto:|tel:)/i.test(h))window.open(h,'_blank','noopener');});
 document.addEventListener('submit',function(e){if(!e.defaultPrevented)e.preventDefault();});
 ${BACKEND_SHIM}
+${NAV_SHIM}
 try{(${runtime.toString()})(${safe(files)},${safe(files[ENTRY] ? ENTRY : Object.keys(files)[0])});}catch(e){__showErr(e)}
 </script></body></html>`;
 }

@@ -582,6 +582,7 @@ export default function Playground() {
               files={files}
               activeFile={activeFile}
               setActiveFile={setActiveFile}
+              previewId={previewId}
             />
           </Panel>
         </PanelGroup>
@@ -628,6 +629,7 @@ export default function Playground() {
               files={files}
               activeFile={activeFile}
               setActiveFile={setActiveFile}
+              previewId={previewId}
             />
           )}
         </div>

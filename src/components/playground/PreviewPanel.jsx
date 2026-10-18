@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Eye, Code, Monitor, Tablet, Smartphone, Copy, Download, Check, Files } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Eye, Code, Monitor, Tablet, Smartphone, Copy, Download, Check, Files, ArrowLeft, ArrowRight, RotateCw, Globe, Database } from 'lucide-react';
 import CodeView from './CodeView';
 import FileTree from './FileTree';
-import { buildPreviewHtml, buildProjectFiles } from '@/lib/preview';
+import ApiExplorer from './ApiExplorer';
+import { buildPreviewHtml } from '@/lib/preview';
 import { serializeFiles, totalLines } from '@/lib/files';
 
 const DEVICES = { desktop: '100%', tablet: '768px', mobile: '390px' };
@@ -17,16 +18,74 @@ export default function PreviewPanel({
   setActiveV,
   files,
   activeFile,
-  setActiveFile
+  setActiveFile,
+  previewId,
 }) {
   const [copied, setCopied] = useState(false);
   const [showTree, setShowTree] = useState(true);
 
+  // Virtual route navigation (address bar + back/forward) for the preview iframe
+  const iframeRef = useRef(null);
+  const [history, setHistory] = useState(['/']);
+  const [idx, setIdx] = useState(0);
+  const [routeInput, setRouteInput] = useState('/');
+
   const fileCount = Object.keys(files).length;
   const lineCount = useMemo(() => totalLines(files), [files]);
   const currentCode = files[activeFile] ?? '';
-
   const previewDoc = useMemo(() => buildPreviewHtml(files), [files]);
+
+  // Reset navigation whenever the preview content is rebuilt
+  useEffect(() => {
+    setHistory(['/']); setIdx(0); setRouteInput('/');
+  }, [previewDoc]);
+
+  useEffect(() => {
+    const onMsg = (e) => {
+      const d = e.data;
+      if (!d) return;
+      if (d.type === 'vibe-preview-ready') { setHistory(['/']); setIdx(0); setRouteInput('/'); return; }
+      if (d.type === 'vibe-route') {
+        const r = d.route || '/';
+        setRouteInput(r);
+        setHistory((h) => {
+          const cur = h[idx] ?? '/';
+          if (r === cur) return h;
+          const nh = h.slice(0, idx + 1);
+          nh.push(r);
+          return nh;
+        });
+        setIdx((i) => (history[i] === r ? i : i + 1));
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [idx, history]);
+
+  const postNavigate = (route) => {
+    const win = iframeRef.current?.contentWindow;
+    if (win) win.postMessage({ type: 'vibe-navigate', route }, '*');
+  };
+  const go = () => {
+    let r = routeInput.trim() || '/';
+    if (r.charAt(0) !== '/' && r.charAt(0) !== '?') r = '/' + r;
+    setHistory((h) => { const nh = h.slice(0, idx + 1); nh.push(r); return nh; });
+    setIdx((i) => i + 1);
+    postNavigate(r);
+  };
+  const back = () => {
+    if (idx <= 0) return;
+    const ni = idx - 1;
+    setIdx(ni); setRouteInput(history[ni] || '/');
+    postNavigate(history[ni] || '/');
+  };
+  const forward = () => {
+    if (idx >= history.length - 1) return;
+    const ni = idx + 1;
+    setIdx(ni); setRouteInput(history[ni] || '/');
+    postNavigate(history[ni] || '/');
+  };
+  const reload = () => postNavigate(history[idx] || '/');
 
   const copy = async () => {
     try {
@@ -53,7 +112,7 @@ export default function PreviewPanel({
       {/* Toolbar */}
       <div className="h-12 shrink-0 flex items-center justify-between gap-2 px-3 border-b bg-background overflow-x-auto">
         <div className="flex items-center gap-2 shrink-0">
-          {/* View toggle */}
+          {/* View toggle: preview | code | api */}
           <div className="inline-flex rounded-lg border p-0.5 shrink-0">
             <button
               onClick={() => setView('preview')}
@@ -66,6 +125,12 @@ export default function PreviewPanel({
               className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-sm ${view === 'code' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
             >
               <Code className="w-4 h-4" />كود
+            </button>
+            <button
+              onClick={() => setView('api')}
+              className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-sm ${view === 'api' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+            >
+              <Database className="w-4 h-4" />API
             </button>
           </div>
 
@@ -122,16 +187,44 @@ export default function PreviewPanel({
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden flex">
         {view === 'preview' ? (
-          <div className="h-full w-full flex items-start justify-center p-3 overflow-auto bg-muted/30 flex-1">
-            <div style={{ width: DEVICES[device], maxWidth: '100%' }} className="h-full mx-auto">
-              <iframe
-                title="preview"
-                srcDoc={previewDoc}
-                className="w-full h-full rounded-lg border bg-white shadow-sm"
-                sandbox="allow-scripts allow-popups"
-              />
+          <div className="flex flex-col w-full flex-1 min-h-0">
+            {/* Address bar — navigate the app's virtual routes */}
+            <div className="h-10 shrink-0 flex items-center gap-1 px-2 border-b bg-background">
+              <button onClick={back} disabled={idx <= 0} className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted disabled:opacity-30" title="رجوع">
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button onClick={forward} disabled={idx >= history.length - 1} className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted disabled:opacity-30" title="تقدّم">
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <button onClick={reload} className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-muted" title="تحديث">
+                <RotateCw className="w-4 h-4" />
+              </button>
+              <div className="flex-1 flex items-center gap-1.5 h-8 rounded-md border bg-muted/40 px-2">
+                <Globe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                <input
+                  value={routeInput}
+                  onChange={(e) => setRouteInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') go(); }}
+                  placeholder="/"
+                  dir="ltr"
+                  className="flex-1 bg-transparent text-sm font-mono outline-none min-w-0"
+                />
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 flex items-start justify-center p-3 overflow-auto bg-muted/30">
+              <div style={{ width: DEVICES[device], maxWidth: '100%' }} className="h-full mx-auto">
+                <iframe
+                  ref={iframeRef}
+                  title="preview"
+                  srcDoc={previewDoc}
+                  className="w-full h-full rounded-lg border bg-white shadow-sm"
+                  sandbox="allow-scripts allow-popups"
+                />
+              </div>
             </div>
           </div>
+        ) : view === 'api' ? (
+          <ApiExplorer files={files} previewId={previewId} />
         ) : (
           <>
             {showTree && fileCount > 0 && (
