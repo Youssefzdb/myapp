@@ -8,6 +8,7 @@ import { base44 } from "@/api/base44Client";
 import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports, normalizePath, undefinedComponents, emptyFiles } from "./files";
 import { buildProjectFiles } from "./preview";
 import { captureAndVerifyPreview, capturePreviewErrors } from "./screenshot";
+import { proxyFetch, proxyFetchText } from "./proxyFetch";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. You build professional apps with a React + TypeScript + Tailwind FRONTEND in src/ AND a declarative REST BACKEND in server/. Frontend files (8-25 focused): src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -33,6 +34,7 @@ replacement lines
 <action name="generate_image" prompt="a minimalist SaaS hero illustration, soft gradients, 16:9">optional-name</action>
 <action name="search_web" query="current top 5 project management tools and their pricing"/>
 <action name="fetch_website" url="https://example.com"/>
+<action name="curl" url="https://api.example.com/data" method="GET" headers='{"Authorization":"Bearer ..."}' body='{"q":"hi"}'/>
 <action name="check_project"/>
 <action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
 <action name="finish">1-3 sentence summary for the user</action>
@@ -86,7 +88,8 @@ app.listen(3001, () => console.log("API on :3001"));
 Extra tools (the host executes them for real and returns results):
 - generate_image: create a real AI image from a prompt. Returns a public image URL — embed it directly in <img src="..."> or as a CSS background. Use for logos, hero art, product photos, avatars. Prefer specific, descriptive prompts. Do NOT use images.unsplash.com when you can generate a fitting custom image.
 - search_web: get up-to-date factual information from the web (names, prices, real product data) to make mock data realistic. Returns concise text. Use sparingly for real-world facts only.
-- fetch_website: fetch the text content of a public URL (use when the user gives a link to base the app on, or to pull real copy/data). Returns extracted text.
+- fetch_website: fetch the text content of a public URL (use when the user gives a link to base the app on, or to pull real copy/data). Returns extracted markdown/text.
+- curl: a REAL HTTP request through free proxies (no credits). Supports method (GET/POST/PUT/DELETE/PATCH), headers, and body. Use for API calls, webhooks, or fetching raw responses a plain GET reader can't reach. Returns status + response body. Attributes: url (required), method, headers (JSON string), body.
 - push_github: push the current project to the user's connected GitHub repo (creates the repo if needed and commits all files). Optional attrs: repo (default "vibe-app"), private ("true"/"false"), message. Use it when the user asks to push/upload to GitHub, or automatically once the app is complete and working if they asked for auto-push. Returns the repo URL.
 - skill_list: browse and load building skills from the platform's skill library. With no query (skill_list), returns the catalog (name + category + description). With query="<term>" (e.g. <action name="skill_list" query="charts"/>), returns the FULL instructions of matching skills (ui, data, auth, integration, backend, advanced). Load the relevant skill BEFORE building a feature you are unsure about — e.g. load "charts" before a dashboard, "forms" before a form, "auth_flow" before login. Do NOT load every skill; only what the current task needs.
 - verify_preview: captures a real screenshot of the LIVE rendered preview and runs a FREE visual sanity check (no credits): blank page, error screen, or near-empty render. Returns ok plus any issues found. Call it proactively when you suspect the render is broken. A visual check ALSO runs automatically right before finish — if it finds issues, fix them with write_file/edit_file and call finish again.
@@ -341,35 +344,28 @@ export async function runAgentLoop(opts) {
           const resp = await base44.functions.invoke("searchWeb", { query: q });
           output = String(resp?.data?.content || "").trim() || "No results.";
         } else if (call.name === "fetch_website") {
-          // Client-side fetch through free readers — no Base44 function, no
-          // integration credits. Jina Reader returns clean markdown (preferred);
-          // allorigins raw is the fallback. Both send permissive CORS headers.
+          // Real client-side fetch through free readers — no Base44 function,
+          // no integration credits. Markdown/text content of a public URL.
           const u = String(call.args.url || "").trim();
           if (!u) throw new Error("fetch_website requires a url");
-          if (!/^https?:\/\//i.test(u)) throw new Error("Invalid URL");
-          let text = "";
-          try {
-            const r = await fetch("https://r.jina.ai/" + u, { signal: opts.signal });
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            text = await r.text();
-          } catch (e) {
-            if (opts.signal?.aborted) throw e;
-            const r2 = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(u), { signal: opts.signal }).catch(() => null);
-            if (!r2 || !r2.ok) throw new Error("fetch failed: " + (e?.message || "no proxy"));
-            const html = await r2.text();
-            text = html
-              .replace(/<script[\s\S]*?<\/script>/gi, " ")
-              .replace(/<style[\s\S]*?<\/style>/gi, " ")
-              .replace(/<[^>]+>/g, " ")
-              .replace(/&nbsp;/g, " ")
-              .replace(/&/g, "&")
-              .replace(/</g, "<")
-              .replace(/>/g, ">")
-              .replace(/"/g, '"')
-              .replace(/\s+/g, " ")
-              .trim();
+          output = await proxyFetchText(u, { signal: opts.signal });
+          if (output.length > 8000) output = output.slice(0, 8000) + "…[truncated]";
+        } else if (call.name === "curl") {
+          // REAL HTTP request through free CORS proxies — method, headers and
+          // body are forwarded (corsproxy.io). No Base44 function, no credits.
+          const url = String(call.args.url || "").trim();
+          if (!url) throw new Error("curl requires a url");
+          if (!/^https?:\/\//i.test(url)) throw new Error("Invalid URL (must start with http(s)://)");
+          const method = String(call.args.method || "GET").toUpperCase();
+          let headers = {};
+          const hRaw = String(call.args.headers || "").trim();
+          if (hRaw) {
+            try { headers = JSON.parse(hRaw); if (!headers || typeof headers !== "object") headers = {}; }
+            catch { throw new Error("headers must be a JSON object string"); }
           }
-          output = text.trim() || "Empty page.";
+          const reqBody = String(call.args.body || call.body || "");
+          const r = await proxyFetch({ url, method, headers, body: reqBody || undefined, signal: opts.signal });
+          output = `HTTP ${r.status}\nContent-Length: ${r.body.length}\n\n${r.body}`;
           if (output.length > 8000) output = output.slice(0, 8000) + "…[truncated]";
         } else if (call.name === "skill_list") {
           const q = String(call.args.query || call.body || "").trim();

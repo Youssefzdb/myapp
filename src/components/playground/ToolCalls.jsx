@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   FilePlus, FilePen, Trash2, FolderTree, FileSearch, CheckCircle2, Flag,
   Loader2, Check, X, ChevronLeft, Copy, CheckCheck, Code2, AlertTriangle,
-  Image as ImageIcon, Search, Globe,
+  Image as ImageIcon, Search, Globe, Terminal,
 } from 'lucide-react';
 import { Image as UiImage } from '@/components/ui/image';
 
@@ -17,6 +17,7 @@ const ICONS = {
   generate_image: ImageIcon,
   search_web: Search,
   fetch_website: Globe,
+  curl: Terminal,
 };
 
 const LABELS = {
@@ -30,6 +31,7 @@ const LABELS = {
   generate_image: 'توليد صورة',
   search_web: 'بحث ويب',
   fetch_website: 'جلب صفحة',
+  curl: 'curl',
 };
 
 const langOf = (path = '') => {
