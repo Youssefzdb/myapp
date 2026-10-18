@@ -7,6 +7,7 @@ import ChatPanel from '@/components/playground/ChatPanel';
 import PreviewPanel from '@/components/playground/PreviewPanel';
 import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
 import { runAgentLoop } from '@/lib/agentLoop';
+import { analyzeImages } from '@/lib/vision';
 import { serializeFiles, extractFiles, ENTRY } from '@/lib/files';
 import { buildProjectFiles } from '@/lib/preview';
 import { pushProjectToGithub } from '@/lib/github';
@@ -109,6 +110,7 @@ export default function Playground() {
   // chat
   const [messages, setMessages] = useState(restored?.messages?.length ? restored.messages : [WELCOME]);
   const [input, setInput] = useState('');
+  const [pendingImages, setPendingImages] = useState([]);
   const [busy, setBusy] = useState(false);
   // project
   const [versions, setVersions] = useState(restored?.versions ?? []);
@@ -127,6 +129,8 @@ export default function Playground() {
   const [previewId, setPreviewId] = useState(null);
   const filesRef = useRef({});
   const previewIdRef = useRef(null);
+  const pendingImagesRef = useRef([]);
+  const uploadPromises = useRef({});
 
   const current = versions.find((v) => v.n === activeV) ?? null;
   const files = liveFiles ?? current?.files ?? {};
@@ -226,6 +230,8 @@ export default function Playground() {
     return () => clearTimeout(t);
   }, [messages, versions, activeV, model, activeFile, autoPush]);
 
+  useEffect(() => { pendingImagesRef.current = pendingImages; }, [pendingImages]);
+
   const refreshModels = async () => {
     if (checking || busy) return;
     setChecking(true);
@@ -242,21 +248,71 @@ export default function Playground() {
     }
   };
 
-  const send = async (text) => {
-    const prompt = (text ?? input).trim();
-    if (!prompt || busy || checking) return;
+  const attachImages = async (fileList) => {
+    for (const file of Array.from(fileList)) {
+      if (!file.type.startsWith('image/')) continue;
+      const id = uid();
+      const preview = URL.createObjectURL(file);
+      setPendingImages((p) => [...p, { id, name: file.name, preview, uploading: true }]);
+      uploadPromises.current[id] = (async () => {
+        try {
+          const { file_uri } = await base44.integrations.Core.UploadPrivateFile({ file });
+          const { signed_url } = await base44.integrations.Core.CreateFileSignedUrl({ file_uri, expires_in: 1800 });
+          setPendingImages((p) => p.map((x) => (x.id === id ? { ...x, uploading: false } : x)));
+          return { id, name: file.name, preview, url: signed_url };
+        } catch (e) {
+          setPendingImages((p) => p.filter((x) => x.id !== id));
+          URL.revokeObjectURL(preview);
+          delete uploadPromises.current[id];
+          return null;
+        }
+      })();
+    }
+  };
+  const removeImage = (id) => {
+    setPendingImages((p) => {
+      const x = p.find((y) => y.id === id);
+      if (x) URL.revokeObjectURL(x.preview);
+      return p.filter((y) => y.id !== id);
+    });
+    delete uploadPromises.current[id];
+  };
 
+  const send = async (text) => {
+    let prompt = (text ?? input).trim();
+    const haveImgs = pendingImagesRef.current.length > 0;
+    if (!prompt && haveImgs) prompt = "ابنِ نسخة مطابقة بنسبة 99-100% من الموقع/التصميم الظاهر في الصورة المرفقة.";
+    if ((!prompt && !haveImgs) || busy || checking) return;
+
+    const attached = pendingImagesRef.current.slice();
     setInput('');
     setBusy(true);
 
-    const userMsg = { id: uid(), role: 'user', text: prompt };
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    const userMsg = { id: uid(), role: 'user', text: prompt, images: attached.map((x) => ({ id: x.id, name: x.name, preview: x.preview })) };
     const aid = uid();
-    const assistantMsg = { id: aid, role: 'assistant', text: '', reasoning: '', tools: [], live: 'يفكّر…', error: false, partial: false };
+    const assistantMsg = { id: aid, role: 'assistant', text: '', reasoning: '', tools: [], live: attached.length ? 'يحلّل الصورة…' : 'يفكّر…', error: false, partial: false };
     setMessages((ms) => [...ms, userMsg, assistantMsg]);
     setLiveFiles(null);
 
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
+    setPendingImages([]);
+
+    let enriched = prompt;
+    if (attached.length) {
+      const entries = (await Promise.all(attached.map((x) => uploadPromises.current[x.id]))).filter(Boolean);
+      const urls = entries.map((e) => e.url).filter(Boolean);
+      if (urls.length) {
+        try {
+          const spec = await analyzeImages(urls, ctrl.signal);
+          enriched = `[REFERENCE IMAGES — pixel-accurate clone target]\n${spec}\n\nUser instruction: ${prompt}`;
+        } catch (e) {
+          if (ctrl.signal.aborted) throw e;
+        }
+      }
+      setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, live: 'يفكّر…' } : m)));
+    }
 
     const persist = isAuthenticated;
     try {
@@ -292,7 +348,7 @@ export default function Playground() {
       const currentFiles = current?.files ?? {};
 
       const result = await runAgentLoop({
-        prompt,
+        prompt: enriched,
         history,
         model,
         files: currentFiles,
@@ -487,6 +543,9 @@ export default function Playground() {
               onSend={() => send()}
               isGenerating={busy}
               onAbort={abort}
+              images={pendingImages}
+              onAttachImages={attachImages}
+              onRemoveImage={removeImage}
             />
           </Panel>
           <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/30 transition-colors" />
@@ -532,6 +591,9 @@ export default function Playground() {
               onSend={() => send()}
               isGenerating={busy}
               onAbort={abort}
+              images={pendingImages}
+              onAttachImages={attachImages}
+              onRemoveImage={removeImage}
             />
           ) : (
             <PreviewPanel
