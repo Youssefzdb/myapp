@@ -309,7 +309,19 @@ export default function Playground() {
         ? (await Promise.all(attached.map((x) => uploadPromises.current[x.id]))).filter(Boolean)
         : [];
       const attachedUrls = entries.map((e) => e.url).filter(Boolean);
-      referenceUrls = [...attachedUrls, ...linkedImageUrls];
+      // Re-host linked image URLs through a backend function so the vision model
+      // can fetch them (some hosts like catbox are blocked for the model).
+      let linkedUrls = [...linkedImageUrls];
+      if (linkedUrls.length) {
+        const rehosted = await Promise.all(linkedUrls.map(async (u) => {
+          try {
+            const res = await base44.functions.invoke('rehostImage', { url: u });
+            return res?.data?.data_url || u;
+          } catch { return u; }
+        }));
+        linkedUrls = rehosted.filter(Boolean);
+      }
+      referenceUrls = [...attachedUrls, ...linkedUrls];
       if (referenceUrls.length) {
         try {
           const spec = await analyzeImages(referenceUrls, ctrl.signal);

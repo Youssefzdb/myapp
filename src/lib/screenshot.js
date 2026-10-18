@@ -1,6 +1,5 @@
 import html2canvas from "html2canvas";
 import { buildPreviewHtml } from "./preview";
-import { base44 } from "@/api/base44Client";
 import { verifyScreenshot } from "./vision";
 
 /**
@@ -79,18 +78,14 @@ export async function captureAndVerifyPreview(files, width = 1024, opts = {}) {
       issues.push("Preview is mostly empty (very few elements rendered).");
     }
 
-    // --- capture a real screenshot (storage only; best-effort) ---
+    // --- capture a real screenshot as an in-memory data URL (no upload, no
+    // integration credits) so the vision model can actually see the render ---
     try {
       const canvas = await html2canvas(doc.body, {
         width, height, windowWidth: width, windowHeight: height,
         useCORS: true, backgroundColor: "#ffffff", scale: 1, logging: false,
       });
-      const blob = await new Promise((res) => canvas.toBlob(res, "image/png", 0.85));
-      if (blob) {
-        const file = new File([blob], `preview-${Date.now()}.png`, { type: "image/png" });
-        const out = await base44.integrations.Core.UploadPublicFile({ file });
-        url = out?.file_url || null;
-      }
+      url = canvas.toDataURL("image/png", 0.85);
     } catch {
       /* screenshot is best-effort; verification still works without it */
     }
