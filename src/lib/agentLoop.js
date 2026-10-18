@@ -9,6 +9,8 @@ import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports
 import { buildProjectFiles } from "./preview";
 import { captureAndVerifyPreview, capturePreviewErrors } from "./screenshot";
 import { proxyFetch, proxyFetchText } from "./proxyFetch";
+import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
+import { summarizeProjectMap } from "./projectMap";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. You build professional apps with a React + TypeScript + Tailwind FRONTEND in src/ AND a declarative REST BACKEND in server/. Frontend files (8-25 focused): src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -193,8 +195,9 @@ export function checkProject(files) {
 export async function runAgentLoop(opts) {
   const files = { ...opts.files };
   let changed = false;
+  const projectMap = summarizeProjectMap(files, opts.prompt || opts.task || "");
   const listing = Object.keys(files).length
-    ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}`
+    ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}${projectMap ? `\n\n${projectMap}` : ""}`
     : "The project is empty.";
   const convo = [
     ...opts.history,
@@ -203,11 +206,26 @@ export async function runAgentLoop(opts) {
   const maxSteps = opts.maxSteps ?? 14;
   const MAX_VERIFY = 1;
   let verifyCount = 0;
+  const available = Array.isArray(opts.availableModels) ? opts.availableModels : [];
+  const routeModel = (step, request) => {
+    const category = classifyStep(request, {
+      step,
+      hasImages: !!(opts.referenceImages && opts.referenceImages.length),
+      isNewProject: Object.keys(files).length === 0,
+      changedFilesCount: Object.keys(files).length,
+    });
+    const id = pickModel(category, available, opts.model);
+    return { category, model: id };
+  };
 
   for (let step = 0; step < maxSteps; step++) {
     opts.signal.throwIfAborted();
     const last = convo[convo.length - 1];
-    opts.onEvent({ type: "status", text: step === 0 ? "يفكّر…" : "يراجع النتائج ويفكّر…" });
+    const { category, model: stepModel } = routeModel(step, opts.prompt || opts.task || "");
+    const label = CATEGORY_LABELS[category] || category;
+    const thinking = step === 0 ? "يفكّر…" : "يراجع النتائج ويفكّر…";
+    opts.onEvent({ type: "route", category, model: stepModel, label });
+    opts.onEvent({ type: "status", text: `${label} · ${thinking}` });
     const reasoningId = uid();
     const streamed = [];
     let statusCleared = false;
@@ -219,7 +237,7 @@ export async function runAgentLoop(opts) {
       res = await streamChat({
         prompt: `${PLAIN_TEXT_PREFIX}\n\n${last.content}`,
         history: convo.slice(0, -1),
-        model: opts.model,
+        model: stepModel,
         signal: opts.signal,
         effort: opts.effort,
         system: AGENT_SYSTEM,

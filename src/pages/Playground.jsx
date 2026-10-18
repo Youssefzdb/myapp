@@ -380,12 +380,15 @@ export default function Playground() {
         referenceImages: referenceUrls,
         history,
         model,
+        availableModels: models,
         files: currentFiles,
         effort,
         signal: ctrl.signal,
         onEvent: (ev) => {
           if (ev.type === 'status') {
             setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, live: ev.text } : m)));
+          } else if (ev.type === 'route') {
+            setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, route: { label: ev.label, model: ev.model, category: ev.category } } : m)));
           } else if (ev.type === 'thought') {
             setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, reasoning: ev.text, live: null } : m)));
           } else if (ev.type === 'tool') {
