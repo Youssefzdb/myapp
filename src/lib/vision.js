@@ -6,6 +6,16 @@ import { OPENCODE_BASE } from "./opencode";
 // resulting spec into the build agent as text.
 const VISION_MODEL = "nemotron-3.5-super-vl-free";
 
+// Detects direct image links pasted as text (e.g. https://.../shot.png) so they
+// trigger vision analysis the same way uploaded attachments do — regardless of
+// which build model is currently selected.
+const IMAGE_URL_RE = /https?:\/\/[^\s"'<>]+?\.(?:png|jpe?g|webp|gif|avif|bmp|svg)(?:\?[^\s"'<>]*)?/gi;
+export function extractImageUrls(text) {
+  if (!text) return [];
+  const matches = String(text).match(IMAGE_URL_RE) || [];
+  return Array.from(new Set(matches.map((u) => u)));
+}
+
 const ANALYSIS_PROMPT = `You are a senior front-end engineer reverse-engineering reference screenshot(s) so another AI can rebuild a pixel-accurate clone (99-100% fidelity). Examine every pixel. If multiple images are attached, they are different views/screens of the same product — analyze each and label which is which.
 
 Output an EXHAUSTIVE structured spec in English (plain text with section headers, no preamble):

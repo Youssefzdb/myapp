@@ -7,7 +7,7 @@ import ChatPanel from '@/components/playground/ChatPanel';
 import PreviewPanel from '@/components/playground/PreviewPanel';
 import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
 import { runAgentLoop } from '@/lib/agentLoop';
-import { analyzeImages } from '@/lib/vision';
+import { analyzeImages, extractImageUrls } from '@/lib/vision';
 import { serializeFiles, extractFiles, ENTRY } from '@/lib/files';
 import { buildProjectFiles } from '@/lib/preview';
 import { pushProjectToGithub } from '@/lib/github';
@@ -280,8 +280,11 @@ export default function Playground() {
 
   const send = async (text) => {
     let prompt = (text ?? input).trim();
-    const haveImgs = pendingImagesRef.current.length > 0;
-    if (!prompt && haveImgs) prompt = "ابنِ نسخة مطابقة بنسبة 99-100% من الموقع/التصميم الظاهر في الصورة المرفقة.";
+    const linkedImageUrls = extractImageUrls(prompt);
+    const haveImgs = pendingImagesRef.current.length > 0 || linkedImageUrls.length > 0;
+    if (haveImgs && !prompt.replace(/https?:\/\/\S+/g, '').trim()) {
+      prompt = "ابنِ نسخة مطابقة بنسبة 99-100% من الموقع/التصميم الظاهر في الصورة المرفقة.";
+    }
     if ((!prompt && !haveImgs) || busy || checking) return;
 
     const attached = pendingImagesRef.current.slice();
@@ -301,13 +304,15 @@ export default function Playground() {
 
     let referenceUrls = [];
     let enriched = prompt;
-    if (attached.length) {
-      const entries = (await Promise.all(attached.map((x) => uploadPromises.current[x.id]))).filter(Boolean);
-      const urls = entries.map((e) => e.url).filter(Boolean);
-      referenceUrls = urls;
-      if (urls.length) {
+    if (attached.length || linkedImageUrls.length) {
+      const entries = attached.length
+        ? (await Promise.all(attached.map((x) => uploadPromises.current[x.id]))).filter(Boolean)
+        : [];
+      const attachedUrls = entries.map((e) => e.url).filter(Boolean);
+      referenceUrls = [...attachedUrls, ...linkedImageUrls];
+      if (referenceUrls.length) {
         try {
-          const spec = await analyzeImages(urls, ctrl.signal);
+          const spec = await analyzeImages(referenceUrls, ctrl.signal);
           enriched = `[REFERENCE IMAGES — pixel-accurate clone target]\n${spec}\n\nUser instruction: ${prompt}`;
         } catch (e) {
           if (ctrl.signal.aborted) throw e;
