@@ -14,9 +14,8 @@ const MOTIONS = [
 const motionFor = (id) => MOTIONS[(Number(id) || 0) % MOTIONS.length];
 const XFADE_MS = 800;
 
-const img = (shot, w, h) => shotImageUrl(shot.imagePrompt, { seed: 1000 + (shot.id || 0), width: w, height: h });
-
-export default function VideoPlayer({ shots }) {
+export default function VideoPlayer({ shots, images }) {
+  const img = (shot, w, h) => images?.[shot.id] || shotImageUrl(shot.imagePrompt, { seed: 1000 + (shot.id || 0), width: w, height: h });
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);

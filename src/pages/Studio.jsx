@@ -4,6 +4,7 @@ import { Clapperboard, ArrowRight, ArrowLeft, Loader2, Sparkles, Image as ImageI
 import { Button } from '@/components/ui/button';
 import { loadConfirmedModels } from '@/lib/opencode';
 import { generateVideoPlan, shotImageUrl } from '@/lib/filmStudio';
+import { generateShotImage } from '@/lib/imageGen';
 import VideoPlayer from '@/components/studio/VideoPlayer';
 
 const EXAMPLES = [
@@ -20,18 +21,33 @@ export default function Studio() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [plan, setPlan] = useState(null);
+  const [images, setImages] = useState({});
   const [error, setError] = useState('');
   const abortRef = useRef(null);
 
   const run = async () => {
     const text = idea.trim();
     if (!text || busy) return;
-    setBusy(true); setError(''); setPlan(null); setStatus('ابدأ الإنتاج…');
+    setBusy(true); setError(''); setPlan(null); setImages({}); setStatus('ابدأ الإنتاج…');
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
       const p = await generateVideoPlan({ idea: text, model, effort, signal: ctrl.signal, onStatus: setStatus });
       setPlan(p);
+      const imgs = {};
+      for (let i = 0; i < p.shots.length; i++) {
+        const s = p.shots[i];
+        setStatus(`يولّد الصورة ${i + 1}/${p.shots.length} (Puter · احتياطي Pollinations)…`);
+        try {
+          const { url } = await generateShotImage(s.imagePrompt, { seed: 1000 + (s.id || 0), signal: ctrl.signal });
+          imgs[s.id] = url;
+          setImages({ ...imgs });
+        } catch (e) {
+          if (ctrl.signal.aborted) throw e;
+          imgs[s.id] = shotImageUrl(s.imagePrompt, { seed: 1000 + (s.id || 0) });
+          setImages({ ...imgs });
+        }
+      }
       setStatus('');
     } catch (e) {
       if (ctrl.signal.aborted) setStatus('تم الإلغاء.');
@@ -109,14 +125,14 @@ export default function Studio() {
         {plan && (
           <div className="mt-8 space-y-6">
             <div>
-              <VideoPlayer shots={plan.shots} />
+              <VideoPlayer shots={plan.shots} images={images} />
             </div>
             <div>
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><ImageIcon className="w-4 h-4" />لوحة العمل — {plan.shots.length} لقطة</h3>
               <div className="grid sm:grid-cols-2 gap-3">
                 {plan.shots.map((s) => (
                   <div key={s.id} className="rounded-xl border bg-card overflow-hidden">
-                    <img src={shotImageUrl(s.imagePrompt, { seed: 1000 + (s.id || 0), width: 512, height: 288 })} alt="" loading="lazy" className="w-full aspect-video object-cover" />
+                    <img src={images[s.id] || shotImageUrl(s.imagePrompt, { seed: 1000 + (s.id || 0), width: 512, height: 288 })} alt="" loading="lazy" className="w-full aspect-video object-cover" />
                     <div className="p-3">
                       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1.5"><span className="font-medium text-foreground">لقطة {s.id}</span><span>·</span><span>{s.durationSec}ث</span>{s.onScreenText && <><span>·</span><span>{s.onScreenText}</span></>}</div>
                       <p className="text-sm leading-relaxed line-clamp-3">{s.narration || '—'}</p>
