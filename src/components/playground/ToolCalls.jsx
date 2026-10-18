@@ -31,7 +31,7 @@ const LABELS = {
   generate_image: 'توليد صورة',
   search_web: 'بحث ويب',
   fetch_website: 'جلب صفحة',
-  curl: 'curl',
+  curl: 'طلب HTTP (curl)',
 };
 
 const langOf = (path = '') => {

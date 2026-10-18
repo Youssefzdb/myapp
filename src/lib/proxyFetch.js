@@ -1,95 +1,72 @@
-/**
- * Browser-side "curl" through free CORS proxies — no Base44 function, no
- * integration credits. corsproxy.io forwards method + headers + body; allorigins
- * raw is a GET-only fallback. Returns { status, headers, body }.
- *
- * Browser security makes a TRUE arbitrary curl (any host, any method, raw
- * headers) impossible without a server — these free proxies are the closest
- * equivalent and need no signup or credits.
- */
-const PROXIES = [
-  {
-    name: "corsproxy.io",
-    build: (url) => "https://corsproxy.io/?url=" + encodeURIComponent(url),
-    supportsMethod: true,
-    passthroughHeaders: true,
-  },
-  {
-    name: "allorigins",
-    build: (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
-    supportsMethod: false,
-    passthroughHeaders: false,
-  },
-];
+import { requestText } from '@/lib/httpRequest';
 
-export async function proxyFetch({ url, method = "GET", headers = {}, body, signal }) {
-  if (!url) throw new Error("url required");
-  if (!/^https?:\/\//i.test(url)) throw new Error("Invalid URL (must start with http(s)://)");
-
-  const wantMethod = String(method || "GET").toUpperCase();
-  const isSimpleGet = wantMethod === "GET" && !body;
-  let lastErr = null;
-
-  for (const p of PROXIES) {
-    // Skip proxies that can't honor the requested method/body
-    if (!p.supportsMethod && (!isSimpleGet)) continue;
-    try {
-      const res = await fetch(p.build(url), {
-        method: p.supportsMethod ? wantMethod : "GET",
-        headers: p.passthroughHeaders ? headers : undefined,
-        body: p.supportsMethod && body && wantMethod !== "GET" && wantMethod !== "HEAD" ? body : undefined,
-        signal,
-      });
-      if (!res.ok) { lastErr = new Error(`${p.name}: HTTP ${res.status}`); continue; }
-      const text = await res.text();
-      return {
-        status: res.status,
-        headers: Object.fromEntries(res.headers.entries()),
-        body: text,
-      };
-    } catch (e) {
-      if (signal?.aborted) throw e;
-      lastErr = e;
-    }
+// Keep the existing export name for callers; this is direct browser HTTP,
+// not an OS curl command. Never forward API credentials to a public proxy.
+export async function proxyFetch({ url, method = 'GET', headers = {}, body, signal }) {
+  const verb = String(method).trim().toUpperCase();
+  if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'].includes(verb)) {
+    throw new Error('طريقة HTTP غير مدعومة.');
   }
-  throw new Error("fetch failed via all proxies: " + (lastErr?.message || "unknown"));
+  const requestHeaders = new Headers(headers);
+  try {
+    return await requestText(url, {
+      method: verb, headers: requestHeaders,
+      body: verb === 'GET' || verb === 'HEAD' ? undefined : body, signal,
+    });
+  } catch (error) {
+    if (signal?.aborted || error.name === 'TimeoutError') throw error;
+    throw new Error(`تعذّر الطلب المباشر: ${error.message}. قد يكون السبب الشبكة أو سياسة CORS؛ هذه أداة HTTP في المتصفح وليست أمر curl على خادم.`);
+  }
 }
 
-/** Markdown-clean GET fetch (Jina Reader first, then raw HTML proxies). */
-export async function proxyFetchText(url, { signal } = {}) {
-  if (!url) throw new Error("url required");
-  if (!/^https?:\/\//i.test(url)) throw new Error("Invalid URL");
-  let text = "";
-  try {
-    const r = await fetch("https://r.jina.ai/" + url, { signal });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    text = await r.text();
-  } catch (e) {
-    if (signal?.aborted) throw e;
-    const r2 = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(url), { signal }).catch(() => null);
-    if (r2 && r2.ok) {
-      const html = await r2.text();
-      text = stripHtml(html);
-    } else {
-      const r3 = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url), { signal }).catch(() => null);
-      if (!r3 || !r3.ok) throw new Error("fetch failed: " + (e?.message || "no proxy"));
-      text = stripHtml(await r3.text());
-    }
+function githubContentRequest(url) {
+  if (!['github.com', 'www.github.com'].includes(url.hostname)) return null;
+  const [owner, repository, view, ...path] = url.pathname.split('/').filter(Boolean);
+  if (!owner || !repository || !/^[\w.-]+$/.test(owner) || !/^[\w.-]+$/.test(repository)) return null;
+  const repo = repository.replace(/\.git$/, '');
+  if (!view) {
+    // /readme resolves the repository's default branch; never guess main/master.
+    return { url: `https://api.github.com/repos/${owner}/${repo}/readme`, headers: { Accept: 'application/vnd.github.raw+json' } };
   }
-  text = (text || "").trim();
-  return text || "Empty page.";
+  if (['blob', 'raw'].includes(view) && path.length >= 2) {
+    return { url: `https://raw.githubusercontent.com/${owner}/${repo}/${path.join('/')}` };
+  }
+  return null;
+}
+
+/** Read GitHub content directly; use a reader only for other public web pages. */
+export async function proxyFetchText(url, { signal } = {}) {
+  const source = new URL(url);
+  if (!['http:', 'https:'].includes(source.protocol) || source.username || source.password) {
+    throw new Error('استخدم رابط HTTP أو HTTPS عامًا دون بيانات دخول.');
+  }
+  const github = githubContentRequest(source);
+  const directOnly = github || ['raw.githubusercontent.com', 'api.github.com'].includes(source.hostname);
+  let response;
+  try {
+    response = await requestText(github?.url || source.href, { headers: github?.headers, signal });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (directOnly) throw new Error(`تعذّرت قراءة GitHub مباشرة: ${error.message}`);
+    // This reader is only for public page text, never API methods or credentials.
+    response = await requestText('https://r.jina.ai/' + source.href, { signal });
+  }
+  if (response.status < 200 || response.status >= 300) {
+    const limit = response.headers['x-ratelimit-remaining'] === '0';
+    throw new Error(`HTTP ${response.status} — ${response.url}\n${limit ? 'بلغ GitHub حد الطلبات العامة؛ حاول لاحقًا.' : response.body.slice(0, 500)}`);
+  }
+  const readerError = /Warning:\s*Target URL returned error (\d{3})/i.exec(response.body);
+  if (readerError) throw new Error(`HTTP ${readerError[1]} — ${source.href}`);
+  const text = response.headers['content-type']?.includes('text/html') ? stripHtml(response.body) : response.body;
+  return `Source: ${source.href}\n${github ? 'GitHub repository content: ' + response.url + '\n' : ''}\n${text.trim() || 'Empty page.'}${response.truncated ? '\n…[truncated]' : ''}`;
 }
 
 function stripHtml(html) {
-  return String(html || "")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, '"')
-    .replace(/\s+/g, " ")
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&(nbsp|amp|lt|gt|quot|apos);/g, (_, entity) => ({ nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[entity]))
+    .replace(/\s+/g, ' ')
     .trim();
 }
