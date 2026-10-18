@@ -11,6 +11,7 @@ import { captureAndVerifyPreview, capturePreviewErrors } from "./screenshot";
 import { proxyFetch, proxyFetchText } from "./proxyFetch";
 import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
 import { summarizeProjectMap } from "./projectMap";
+import { getPrompt, setAgentDefault } from "./systemPrompts";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. You build professional apps with a React + TypeScript + Tailwind FRONTEND in src/ AND a declarative REST BACKEND in server/. Frontend files (8-25 focused): src/App.tsx, src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -108,6 +109,11 @@ Rules:
 - The frontend talks to the backend via standard REST only: fetch('/api/products'), POST /api/orders, PUT /api/products/:id, DELETE /api/products/:id. The platform runtime auto-serves CRUD for every declared collection, so you do NOT write custom route handlers — only declare collections in server/api.json. List responses are { items: [...] }; created/updated docs are returned as the doc object with an id. For anything beyond CRUD, do the logic client-side. Keep server/ self-contained (never import from src/).
 - Respect the user's language and RTL when appropriate; responsive mobile layout; accessible labels.
 - Before finish, call check_project and fix every reported problem. Never claim work you did not do through tools.`;
+
+// Register the built-in agent prompt as the default for the editable
+// system-prompts module, so the user can override it from the website UI
+// (localStorage) without touching the code.
+setAgentDefault(AGENT_SYSTEM);
 
 const PLAIN_TEXT_PREFIX =
   "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
@@ -240,7 +246,7 @@ export async function runAgentLoop(opts) {
         model: stepModel,
         signal: opts.signal,
         effort: opts.effort,
-        system: AGENT_SYSTEM,
+        system: getPrompt('agent') || AGENT_SYSTEM,
         onReasoning: (text) => { clearStatus(); opts.onEvent({ type: "thought", id: reasoningId, text }); },
         onAnswer: (text) => {
           clearStatus();

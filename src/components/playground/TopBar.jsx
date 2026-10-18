@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import GithubDialog from './GithubDialog';
 import PublishDialog from './PublishDialog';
 import AccountButton from './AccountButton';
+import SystemPromptDialog from './SystemPromptDialog';
 
 export const EFFORT_OPTIONS = [
   { id: "low", name: "سريع" },
@@ -62,6 +63,7 @@ export default function TopBar({ model, models, onModelChange, onRefreshModels, 
         <Button variant="outline" size="sm" onClick={onNewSession} disabled={busy}>
           <Plus className="w-4 h-4 mr-1" />جديد
         </Button>
+        <SystemPromptDialog />
         <PublishDialog files={files} title={title} />
         <GithubDialog files={files} autoPush={autoPush} onAutoPushChange={onAutoPushChange} onConnectedChange={onGithubConnected} />
         <AccountButton />
