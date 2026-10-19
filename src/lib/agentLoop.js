@@ -202,6 +202,23 @@ export function checkProject(files) {
   return problems;
 }
 
+// Fetch an image URL and re-host it as a self-contained data URL so the
+// resulting <img> renders reliably inside the sandboxed preview iframe (no
+// async fetch, no CORS/hotlink/auth blocks at render time). Pollinations is
+// CORS-open, so this always succeeds for its URLs.
+async function toDataUrl(url, signal) {
+  const r = await fetch(url, { signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const blob = await r.blob();
+  if (!blob.size || !/^image\//.test(blob.type) || blob.size > 3_000_000) throw new Error('unsuitable image');
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error('read failed'));
+    fr.readAsDataURL(blob);
+  });
+}
+
 export async function runAgentLoop(opts) {
   const files = { ...opts.files };
   let changed = false;
@@ -371,20 +388,31 @@ export async function runAgentLoop(opts) {
           tc.url = d.url;
         } else if (call.name === "generate_image") {
           // Free image generation via the Supercool cover-image endpoint (anon
-          // token, no Base44 credits). Falls back to keyless Pollinations if the
-          // service is unreachable. The returned URL is embedded directly in the
-          // generated app — use it for EVERY image the app needs.
+          // token, no Base44 credits). Falls back to keyless Pollinations. The
+          // image is re-hosted as a self-contained data URL so the <img> ALWAYS
+          // renders inside the sandboxed preview iframe — no async fetch, no
+          // CORS/hotlink/auth block. Moderate dimensions keep the data URL small.
           const imgPrompt = String(call.args.prompt || call.body || "").trim();
           if (!imgPrompt) throw new Error("generate_image requires a prompt");
-          let url;
+          const seed = Math.floor(Math.random() * 1e6);
+          const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt.slice(0, 400))}?width=640&height=360&nologo=true&seed=${seed}`;
+          let directUrl = pollinationsUrl;
           try {
-            url = await supercoolGenerateImage(imgPrompt, { signal: opts.signal });
+            directUrl = await supercoolGenerateImage(imgPrompt, { signal: opts.signal });
+          } catch (e) { /* use pollinations */ }
+          let embedUrl = directUrl;
+          try {
+            embedUrl = await toDataUrl(directUrl, opts.signal);
           } catch (e) {
-            const seed = Math.floor(Math.random() * 1e6);
-            url = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt.slice(0, 400))}?width=1024&height=576&nologo=true&seed=${seed}`;
+            if (opts.signal?.aborted) throw e;
+            try { embedUrl = await toDataUrl(pollinationsUrl, opts.signal); }
+            catch (e2) {
+              if (opts.signal?.aborted) throw e2;
+              embedUrl = pollinationsUrl; // best-effort: direct public URL still loads in <img>
+            }
           }
-          output = `Image URL: ${url}\nPrompt: ${imgPrompt}`;
-          tc.url = url;
+          output = `Image URL: ${embedUrl}\nPrompt: ${imgPrompt}`;
+          tc.url = embedUrl;
         } else if (call.name === "free_chat") {
           // Free chat with the Supercool MCP agent — a second AI the builder can
           // consult mid-build for ideas, copy, or planning. No Base44 credits.
@@ -504,6 +532,13 @@ export async function runAgentLoop(opts) {
       }
       return `<action name="${c.name}"${c.args.path ? ` path="${c.args.path}"` : ""}>${c.body}</action>`;
     }).join("\n");
+    // Collapse data URLs from earlier generate_image results so the conversation
+    // context stays small (the model already embedded them in the source files).
+    for (const m of convo) {
+      if (m.role === "user" && typeof m.content === "string" && m.content.includes("Image URL: data:")) {
+        m.content = m.content.replace(/Image URL: data:[^\s"]*/g, "Image URL: <data URL already embedded in source>");
+      }
+    }
     convo.push({ role: "assistant", content: `${thought}\n${compressed}` });
     convo.push({ role: "user", content: `Tool results:\n${toolResults.join("\n")}${cutNote}\n\nContinue with the next action, or call finish when done.` });
   }
