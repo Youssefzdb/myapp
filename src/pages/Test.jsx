@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 const DEFAULT_ANON_JWT =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYzhlZWJmOWQtYjlhNy00NzNkLWI2MmMtYTUzZGNjNWM1YjAyIiwiZW1haWwiOiJhbm9uLWM4ZWViZjlkLWI5YTctNDczZC1iNjJjLWE1M2RjYzVjNWIwMkBhbm9uLnN1cGVyY29vbC5pbnRlcm5hbCIsInN2IjowLCJpYXQiOjE3OTI0MjcyNzUsImp0aSI6IjU2YzFrUUtnbE0wVmlvQ2hXSVg0bXciLCJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzk1MDE5Mjc1fQ.2fWXjwG-39TSBEPFwhMe7xRzyWB8XOSj_fZxymyEUSg';
 
+const DEFAULT_PROXY_URL = 'https://nameless-mode-af36.tarotwithghada.workers.dev';
 const DEFAULT_AGENT_TOKEN =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2FwaS5zdXBlcmNvb2wuc2giLCJhdWQiOiJodHRwczovL21jcC5zdXBlcmNvb2wuY29tL21jcCIsInN1YiI6ImM4ZWViZjlkLWI5YTctNDczZC1iNjJjLWE1M2RjYzVjNWIwMiIsImNsaWVudF9pZCI6Im1jcF9jbGllbnRfc3RYZm1hX24xdjcydThjeTBJbHFBMXhMIiwic2NvcGUiOiJhZ2VudCIsIm1jcF9zZXNzaW9uX2lkIjoibWNwX1NuYWRTQXZXNHhGOVNkcTUiLCJzdXJmYWNlIjoibWNwIiwidG9rZW5fdHlwZSI6ImFnZW50X2FjY2VzcyIsImlhdCI6MTc5MjQyNzQwMiwiZXhwIjoxNzkyNTEzODAyfQ.YtO5woyGdAv0i78M1NvkKzplAuBZH8nah7jNfAtQHQI';
 
@@ -22,12 +23,12 @@ const loadTokens = () => {
       return {
         anon: o.anon || DEFAULT_ANON_JWT,
         agent: o.agent || DEFAULT_AGENT_TOKEN,
-        proxy: o.proxy || '',
-        useProxy: !!o.useProxy,
+        proxy: o.proxy || DEFAULT_PROXY_URL,
+        useProxy: o.useProxy !== undefined ? o.useProxy : true,
       };
     }
   } catch { /* ignore */ }
-  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN, proxy: '', useProxy: false };
+  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN, proxy: DEFAULT_PROXY_URL, useProxy: true };
 };
 const saveTokens = (t) => {
   try { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); } catch { /* ignore */ }
@@ -185,7 +186,7 @@ export default function Test() {
                 </button>
               </div>
               <input dir="ltr" value={tokens.proxy} onChange={(e) => updateToken('proxy', e.target.value)}
-                placeholder="https://opencode-proxy.username.workers.dev"
+                placeholder="https://nameless-mode-af36.tarotwithghada.workers.dev"
                 className="w-full rounded-lg border bg-background p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-ring" />
               <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
                 <Link to="/worker"><Cloud className="w-3 h-3" /> احصل على كود الـ Worker <ExternalLink className="w-3 h-3" /></Link>
