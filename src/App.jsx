@@ -16,6 +16,7 @@ import ResetPassword from '@/pages/ResetPassword';
 import ViewApp from '@/pages/ViewApp';
 import GithubCallback from '@/pages/GithubCallback';
 import Test from '@/pages/Test';
+import Worker from '@/pages/Worker';
 
 
 const AuthenticatedApp = () => {
@@ -47,6 +48,7 @@ const AuthenticatedApp = () => {
       <Route path="/view/:id" element={<ViewApp />} />
       <Route path="/github/callback" element={<GithubCallback />} />
       <Route path="/test" element={<Test />} />
+      <Route path="/worker" element={<Worker />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

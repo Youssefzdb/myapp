@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound } from 'lucide-react';
+import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound, Cloud, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // Client-side tokens (free tier). Editable from the UI in case they expire.
@@ -22,13 +22,22 @@ const loadTokens = () => {
       return {
         anon: o.anon || DEFAULT_ANON_JWT,
         agent: o.agent || DEFAULT_AGENT_TOKEN,
+        proxy: o.proxy || '',
+        useProxy: !!o.useProxy,
       };
     }
   } catch { /* ignore */ }
-  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN };
+  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN, proxy: '', useProxy: false };
 };
 const saveTokens = (t) => {
   try { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); } catch { /* ignore */ }
+};
+
+// Route a URL through the Cloudflare Worker CORS proxy when enabled.
+const throughProxy = (tokens, url) => {
+  if (!tokens.useProxy || !tokens.proxy) return url;
+  const base = tokens.proxy.replace(/\/$/, '');
+  return `${base}?target=${encodeURIComponent(url)}`;
 };
 
 function CodeBlock({ children }) {
@@ -64,11 +73,16 @@ export default function Test() {
     setTokens(next);
     saveTokens(next);
   };
+  const toggleProxy = () => {
+    const next = { ...tokens, useProxy: !tokens.useProxy };
+    setTokens(next);
+    saveTokens(next);
+  };
 
   const generateImage = async () => {
     setImgLoading(true); setImgError(null); setImgResult(null);
     try {
-      const res = await fetch('https://api.supercool.com/api/v1/posts/generate-cover-image', {
+      const res = await fetch(throughProxy(tokens, 'https://api.supercool.com/api/v1/posts/generate-cover-image'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokens.anon}`,
@@ -100,7 +114,7 @@ export default function Test() {
           arguments: { message: chatMsg, request_id: 'my-1' },
         },
       };
-      const res = await fetch('https://mcp.supercool.com/mcp', {
+      const res = await fetch(throughProxy(tokens, 'https://mcp.supercool.com/mcp'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokens.agent}`,
@@ -162,6 +176,20 @@ export default function Test() {
             </div>
             <div className="text-xs text-muted-foreground font-mono" dir="ltr">
               refresh: {REFRESH_TOKEN}<br />client_id: {CLIENT_ID}
+            </div>
+            <div className="rounded-lg border p-3 space-y-2 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label>بروكسي Cloudflare Worker (لتجاوز CORS)</Label>
+                <button onClick={toggleProxy} className={`relative w-10 h-5 rounded-full transition-colors ${tokens.useProxy ? 'bg-primary' : 'bg-muted'}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-all ${tokens.useProxy ? 'right-0.5' : 'left-0.5'}`} />
+                </button>
+              </div>
+              <input dir="ltr" value={tokens.proxy} onChange={(e) => updateToken('proxy', e.target.value)}
+                placeholder="https://opencode-proxy.username.workers.dev"
+                className="w-full rounded-lg border bg-background p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-ring" />
+              <Button asChild variant="link" size="sm" className="h-auto p-0 text-xs">
+                <Link to="/worker"><Cloud className="w-3 h-3" /> احصل على كود الـ Worker <ExternalLink className="w-3 h-3" /></Link>
+              </Button>
             </div>
           </section>
         )}
