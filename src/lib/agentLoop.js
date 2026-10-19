@@ -251,7 +251,14 @@ export async function runAgentLoop(opts) {
         signal: opts.signal,
         effort: opts.effort,
         system: getPrompt('agent') || AGENT_SYSTEM,
-        onReasoning: (text) => { clearStatus(); opts.onEvent({ type: "thought", id: reasoningId, text }); },
+        onReasoning: (text) => {
+          clearStatus();
+          // The upstream SSE emits "No reasoning available." when a model has no
+          // chain-of-thought (e.g. low effort). Treat it as empty so the box
+          // hides instead of showing a dead placeholder.
+          const cleaned = /^no reasoning available\.?$/i.test((text || "").trim()) ? "" : text;
+          opts.onEvent({ type: "thought", id: reasoningId, text: cleaned });
+        },
         onAnswer: (text) => {
           clearStatus();
           const opens = [...text.matchAll(/<(tool|action)\s+name="([\w_]+)"([^>]*)>/g)];
@@ -291,7 +298,11 @@ export async function runAgentLoop(opts) {
         ? `\n\nNote: your previous reply was cut off by the connection while writing these files: ${cutFiles.join(", ")}. They were NOT saved. Re-emit each one now with a complete write_file action.`
         : "\n\nNote: your previous reply was cut off by the connection; any unfinished action was discarded. Continue from where you stopped."
       : "";
-    if (thought) opts.onEvent({ type: "thought", id: uid(), text: thought });
+    // Keep the streamed chain-of-thought as the reasoning shown to the user.
+    // Only fall back to the parsed intro sentence when nothing was streamed —
+    // otherwise the live reasoning gets overwritten and appears to "stop".
+    const streamedReasoning = /^no reasoning available\.?$/i.test((res.reasoning || "").trim()) ? "" : (res.reasoning || "");
+    if (thought && !streamedReasoning.trim()) opts.onEvent({ type: "thought", id: uid(), text: thought });
 
     if (!calls.length) {
       convo.push({ role: "assistant", content: res.content || "" });
