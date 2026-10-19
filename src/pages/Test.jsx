@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound, Cloud, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { parseSupercoolChat, supercoolError } from '@/lib/supercoolResponse';
 
 // Client-side tokens (free tier). Editable from the UI in case they expire.
 const DEFAULT_ANON_JWT =
@@ -23,12 +24,14 @@ const loadTokens = () => {
       return {
         anon: o.anon || DEFAULT_ANON_JWT,
         agent: o.agent || DEFAULT_AGENT_TOKEN,
-        proxy: o.proxy || DEFAULT_PROXY_URL,
-        useProxy: o.useProxy !== undefined ? o.useProxy : true,
+        proxy: o.proxy?.trim() || DEFAULT_PROXY_URL,
+        // Migrate old saved useProxy:false once; keep deliberate changes afterwards.
+        useProxy: o.proxyVersion === 2 ? o.useProxy !== false : true,
+        proxyVersion: 2,
       };
     }
   } catch { /* ignore */ }
-  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN, proxy: DEFAULT_PROXY_URL, useProxy: true };
+  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN, proxy: DEFAULT_PROXY_URL, useProxy: true, proxyVersion: 2 };
 };
 const saveTokens = (t) => {
   try { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); } catch { /* ignore */ }
@@ -36,9 +39,13 @@ const saveTokens = (t) => {
 
 // Route a URL through the Cloudflare Worker CORS proxy when enabled.
 const throughProxy = (tokens, url) => {
-  if (!tokens.useProxy || !tokens.proxy) return url;
-  const base = tokens.proxy.replace(/\/$/, '');
-  return `${base}?target=${encodeURIComponent(url)}`;
+  if (!tokens.useProxy) return url;
+  let proxy;
+  try { proxy = new URL((tokens.proxy || DEFAULT_PROXY_URL).trim()); }
+  catch { throw new Error('رابط الـ Worker غير صالح. افتح إعدادات الاتصال وأدخل رابطه الكامل.'); }
+  if (proxy.protocol !== 'https:') throw new Error('يجب أن يبدأ رابط الـ Worker بـ https://');
+  proxy.searchParams.set('target', url);
+  return proxy.href;
 };
 
 function CodeBlock({ children }) {
@@ -69,6 +76,12 @@ export default function Test() {
   const [chatResult, setChatResult] = useState(null);
   const [chatError, setChatError] = useState(null);
 
+  useEffect(() => {
+    const migrated = loadTokens();
+    setTokens(migrated);
+    saveTokens(migrated);
+  }, []);
+
   const updateToken = (k, v) => {
     const next = { ...tokens, [k]: v };
     setTokens(next);
@@ -95,9 +108,10 @@ export default function Test() {
       let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
       if (!res.ok) throw new Error(`HTTP ${res.status} — ${text.slice(0, 500)}`);
       const url = data?.data?.cover_image_url;
+      if (!url) throw new Error(`لم تُرجع الخدمة رابط صورة — ${text.slice(0, 500)}`);
       setImgResult({ url, raw: data });
     } catch (e) {
-      setImgError(e.message || String(e));
+      setImgError(supercoolError(e, tokens));
     } finally {
       setImgLoading(false);
     }
@@ -106,13 +120,14 @@ export default function Test() {
   const sendChat = async () => {
     setChatLoading(true); setChatError(null); setChatResult(null);
     try {
+      const requestId = crypto.randomUUID();
       const body = {
         jsonrpc: '2.0',
-        id: 3,
+        id: requestId,
         method: 'tools/call',
         params: {
           name: 'message_agent',
-          arguments: { message: chatMsg, request_id: 'my-1' },
+          arguments: { message: chatMsg, request_id: requestId },
         },
       };
       const res = await fetch(throughProxy(tokens, 'https://mcp.supercool.com/mcp'), {
@@ -124,18 +139,11 @@ export default function Test() {
         },
         body: JSON.stringify(body),
       });
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('text/event-stream')) {
-        const text = await res.text();
-        setChatResult({ sse: text, raw: text });
-      } else {
-        const text = await res.text();
-        let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-        if (!res.ok) throw new Error(`HTTP ${res.status} — ${text.slice(0, 500)}`);
-        setChatResult({ data, raw: text });
-      }
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status} — ${text.slice(0, 500)}`);
+      setChatResult(parseSupercoolChat(text, res.headers.get('content-type') || ''));
     } catch (e) {
-      setChatError(e.message || String(e));
+      setChatError(supercoolError(e, tokens));
     } finally {
       setChatLoading(false);
     }
@@ -161,6 +169,11 @@ export default function Test() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" role="status">
+          <span>{tokens.useProxy ? 'مسار الطلبات: عبر Cloudflare Worker' : 'مسار الطلبات: مباشر — البروكسي معطّل'}</span>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setShowTokens(true)}>إعدادات الاتصال</Button>
+          {tokens.useProxy && <span dir="ltr" className="w-full break-all font-mono">{tokens.proxy}</span>}
+        </div>
         {/* Tokens */}
         {showTokens && (
           <section className="rounded-2xl border bg-card p-5 space-y-4">
@@ -222,9 +235,7 @@ export default function Test() {
           {chatResult && (
             <div className="space-y-2">
               <Label>Response</Label>
-              {chatResult.url ? (
-                <p className="text-sm">الرد: {chatResult.reply}</p>
-              ) : null}
+              {chatResult.reply && <p className="text-sm whitespace-pre-wrap">الرد: {chatResult.reply}</p>}
               <CodeBlock>{typeof chatResult.raw === 'string' ? chatResult.raw : JSON.stringify(chatResult.raw, null, 2)}</CodeBlock>
             </div>
           )}
