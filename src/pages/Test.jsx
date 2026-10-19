@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound, Cloud, ExternalLink, RefreshCw } from 'lucide-react';
+import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound, Cloud, ExternalLink, RefreshCw, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { parseSupercoolChat, supercoolError } from '@/lib/supercoolResponse';
 import {
@@ -72,12 +72,17 @@ export default function Test() {
   const [chatError, setChatError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState(null);
+  const [credits, setCredits] = useState(null);
+  const [creditsLoading, setCreditsLoading] = useState(false);
+  const [creditsError, setCreditsError] = useState(null);
 
   useEffect(() => {
     const migrated = loadTokens();
     setTokens(migrated);
     saveTokens(migrated);
   }, []);
+
+  useEffect(() => { fetchCredits(); /* eslint-disable-next-line */ }, []);
 
   // Ensure the agent token is fresh before an authenticated call. Refreshes
   // automatically when it is expired or within the 2-minute leeway, persisting
@@ -106,6 +111,23 @@ export default function Test() {
       throw e;
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const fetchCredits = async () => {
+    setCreditsLoading(true); setCreditsError(null);
+    try {
+      const res = await fetch(throughProxy(tokens, 'https://api.supercool.com/api/v1/subscription'), {
+        headers: { Authorization: `Bearer ${tokens.anon}`, Accept: 'application/json' },
+      });
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch { throw new Error(`HTTP ${res.status} — ${text.slice(0, 300)}`); }
+      if (!res.ok || data.code !== 0) throw new Error(data.detail || data.msg || `HTTP ${res.status}`);
+      setCredits(data.data);
+    } catch (e) {
+      setCreditsError(supercoolError(e, tokens));
+    } finally {
+      setCreditsLoading(false);
     }
   };
 
@@ -215,6 +237,51 @@ export default function Test() {
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setShowTokens(true)}>إعدادات الاتصال</Button>
           {tokens.useProxy && <span dir="ltr" className="w-full break-all font-mono">{tokens.proxy}</span>}
         </div>
+
+        {/* Credits */}
+        <section className="rounded-2xl border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                <Wallet className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold">رصيد Supercool</h2>
+                <p className="text-xs text-muted-foreground font-mono" dir="ltr">GET https://api.supercool.com/api/v1/subscription</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={fetchCredits} disabled={creditsLoading}>
+              {creditsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} تحديث
+            </Button>
+          </div>
+          {creditsError && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">{creditsError}</div>
+          )}
+          {credits && (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <span className="block text-xs text-muted-foreground">الباقة</span>
+                <span className="font-semibold">{credits.tier_name || credits.tier || '—'}</span>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <span className="block text-xs text-muted-foreground">الرصيد المتبقي</span>
+                <span className="font-semibold">{credits.remaining_credits ?? '—'}</span>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <span className="block text-xs text-muted-foreground">شهري مستخدم</span>
+                <span className="font-semibold">{credits.monthly_credits_used ?? '—'} / {credits.monthly_credits ?? '—'}</span>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <span className="block text-xs text-muted-foreground">رصيد إضافي</span>
+                <span className="font-semibold">{credits.bonus_credits ?? '—'}</span>
+              </div>
+              <div className="col-span-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground" dir="ltr">
+                {credits.current_period_start} → {credits.current_period_end}
+              </div>
+            </div>
+          )}
+        </section>
+
         {/* Tokens */}
         {showTokens && (
           <section className="rounded-2xl border bg-card p-5 space-y-4">
