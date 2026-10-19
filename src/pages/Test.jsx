@@ -1,8 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound, Cloud, ExternalLink } from 'lucide-react';
+import { MessageCircle, Image as ImageIcon, Sparkles, ArrowRight, Loader2, Send, KeyRound, Cloud, ExternalLink, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { parseSupercoolChat, supercoolError } from '@/lib/supercoolResponse';
+import {
+  DEFAULT_CLIENT_ID,
+  DEFAULT_REFRESH_TOKEN,
+  loadSupercoolTokens,
+  saveSupercoolTokens,
+  refreshAgentToken,
+  isTokenExpiringSoon,
+  tokenExpiresInSeconds,
+  formatExpiry,
+} from '@/lib/supercoolAuth';
 
 // Client-side tokens (free tier). Editable from the UI in case they expire.
 const DEFAULT_ANON_JWT =
@@ -12,30 +22,15 @@ const DEFAULT_PROXY_URL = 'https://nameless-mode-af36.tarotwithghada.workers.dev
 const DEFAULT_AGENT_TOKEN =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2FwaS5zdXBlcmNvb2wuc2giLCJhdWQiOiJodHRwczovL21jcC5zdXBlcmNvb2wuY29tL21jcCIsInN1YiI6ImM4ZWViZjlkLWI5YTctNDczZC1iNjJjLWE1M2RjYzVjNWIwMiIsImNsaWVudF9pZCI6Im1jcF9jbGllbnRfc3RYZm1hX24xdjcydThjeTBJbHFBMXhMIiwic2NvcGUiOiJhZ2VudCIsIm1jcF9zZXNzaW9uX2lkIjoibWNwX1NuYWRTQXZXNHhGOVNkcTUiLCJzdXJmYWNlIjoibWNwIiwidG9rZW5fdHlwZSI6ImFnZW50X2FjY2VzcyIsImlhdCI6MTc5MjQyNzQwMiwiZXhwIjoxNzkyNTEzODAyfQ.YtO5woyGdAv0i78M1NvkKzplAuBZH8nah7jNfAtQHQI';
 
-const REFRESH_TOKEN = 'rt_AhulVS_5hF7v9IBifUxcsca9IeLRmq2cz6fY3YmiMQsid7ye';
-const CLIENT_ID = 'mcp_client_stXfma_n1v72u8cy0IlqA1xL';
-
-const TOKEN_KEY = 'opencode_test_tokens_v1';
-const loadTokens = () => {
-  try {
-    const raw = localStorage.getItem(TOKEN_KEY);
-    if (raw) {
-      const o = JSON.parse(raw);
-      return {
-        anon: o.anon || DEFAULT_ANON_JWT,
-        agent: o.agent || DEFAULT_AGENT_TOKEN,
-        proxy: o.proxy?.trim() || DEFAULT_PROXY_URL,
-        // Migrate old saved useProxy:false once; keep deliberate changes afterwards.
-        useProxy: o.proxyVersion === 2 ? o.useProxy !== false : true,
-        proxyVersion: 2,
-      };
-    }
-  } catch { /* ignore */ }
-  return { anon: DEFAULT_ANON_JWT, agent: DEFAULT_AGENT_TOKEN, proxy: DEFAULT_PROXY_URL, useProxy: true, proxyVersion: 2 };
+const DEFAULTS = {
+  anon: DEFAULT_ANON_JWT,
+  agent: DEFAULT_AGENT_TOKEN,
+  refresh: DEFAULT_REFRESH_TOKEN,
+  clientId: DEFAULT_CLIENT_ID,
+  proxy: DEFAULT_PROXY_URL,
 };
-const saveTokens = (t) => {
-  try { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); } catch { /* ignore */ }
-};
+const loadTokens = () => loadSupercoolTokens(DEFAULTS);
+const saveTokens = saveSupercoolTokens;
 
 // Route a URL through the Cloudflare Worker CORS proxy when enabled.
 const throughProxy = (tokens, url) => {
@@ -75,12 +70,44 @@ export default function Test() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatResult, setChatResult] = useState(null);
   const [chatError, setChatError] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState(null);
 
   useEffect(() => {
     const migrated = loadTokens();
     setTokens(migrated);
     saveTokens(migrated);
   }, []);
+
+  // Ensure the agent token is fresh before an authenticated call. Refreshes
+  // automatically when it is expired or within the 2-minute leeway, persisting
+  // the rotated refresh token so the next call keeps working.
+  const ensureAgentToken = async () => {
+    if (!isTokenExpiringSoon(tokens.agent)) return tokens.agent;
+    return (await refreshNow(true)).agent;
+  };
+
+  const refreshNow = async (silent = false) => {
+    if (refreshing) return tokens;
+    setRefreshing(true); setRefreshMsg(null);
+    try {
+      const result = await refreshAgentToken({
+        refreshToken: tokens.refresh,
+        clientId: tokens.clientId,
+        proxy: tokens.proxy,
+        useProxy: tokens.useProxy,
+      });
+      const next = { ...tokens, agent: result.agent, refresh: result.refresh };
+      setTokens(next); saveTokens(next);
+      if (!silent) setRefreshMsg(`تم التجديد ✅ — صلاحية جديدة: ${formatExpiry(result.agent)}`);
+      return next;
+    } catch (e) {
+      setRefreshMsg('فشل التجديد: ' + (e.message || String(e)));
+      throw e;
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const updateToken = (k, v) => {
     const next = { ...tokens, [k]: v };
@@ -130,15 +157,29 @@ export default function Test() {
           arguments: { message: chatMsg, request_id: requestId },
         },
       };
-      const res = await fetch(throughProxy(tokens, 'https://mcp.supercool.com/mcp'), {
+      const authToken = await ensureAgentToken();
+      let res = await fetch(throughProxy(tokens, 'https://mcp.supercool.com/mcp'), {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${tokens.agent}`,
+          'Authorization': `Bearer ${authToken}`,
           'Accept': 'application/json, text/event-stream',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
       });
+      // On a stale/expired token, refresh once and retry the same request.
+      if (res.status === 401) {
+        const refreshed = await refreshNow(true);
+        res = await fetch(throughProxy(refreshed, 'https://mcp.supercool.com/mcp'), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${refreshed.agent}`,
+            'Accept': 'application/json, text/event-stream',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+      }
       const text = await res.text();
       if (!res.ok) throw new Error(`HTTP ${res.status} — ${text.slice(0, 500)}`);
       setChatResult(parseSupercoolChat(text, res.headers.get('content-type') || ''));
@@ -188,8 +229,15 @@ export default function Test() {
               <textarea dir="ltr" value={tokens.agent} onChange={(e) => updateToken('agent', e.target.value)} rows={4}
                 className="w-full rounded-lg border bg-background p-2 text-xs font-mono resize-y outline-none focus:ring-1 focus:ring-ring" />
             </div>
-            <div className="text-xs text-muted-foreground font-mono" dir="ltr">
-              refresh: {REFRESH_TOKEN}<br />client_id: {CLIENT_ID}
+            <div className="space-y-1">
+              <Label>REFRESH TOKEN (agent — يتجدّد تلقائيًا)</Label>
+              <textarea dir="ltr" value={tokens.refresh} onChange={(e) => updateToken('refresh', e.target.value)} rows={3}
+                className="w-full rounded-lg border bg-background p-2 text-xs font-mono resize-y outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div className="space-y-1">
+              <Label>CLIENT_ID</Label>
+              <input dir="ltr" value={tokens.clientId} onChange={(e) => updateToken('clientId', e.target.value)}
+                className="w-full rounded-lg border bg-background p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-ring" />
             </div>
             <div className="rounded-lg border p-3 space-y-2 bg-muted/30">
               <div className="flex items-center justify-between">
@@ -219,6 +267,15 @@ export default function Test() {
               <p className="text-xs text-muted-foreground font-mono" dir="ltr">POST https://mcp.supercool.com/mcp</p>
             </div>
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">صلاحية توكن الـ agent: <span className="font-mono text-foreground">{formatExpiry(tokens.agent)}</span></span>
+            <Button variant="outline" size="sm" onClick={() => refreshNow()} disabled={refreshing}>
+              {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} تجديد الآن
+            </Button>
+          </div>
+          {refreshMsg && (
+            <div className="rounded-lg border bg-muted/40 p-2 text-xs text-muted-foreground">{refreshMsg}</div>
+          )}
           <div className="space-y-1">
             <Label>الرسالة</Label>
             <textarea dir="rtl" value={chatMsg} onChange={(e) => setChatMsg(e.target.value)} rows={2}
