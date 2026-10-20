@@ -719,10 +719,9 @@ export async function runAgentLoop(opts) {
             prompts = String(call.args.prompts || call.body || "").split("\\n").map((p) => p.trim()).filter(Boolean);
           }
           if (!Array.isArray(prompts) || !prompts.length) throw new Error("generate_images requires a non-empty prompts array");
-          const results = [];
-          for (const rawPrompt of prompts.slice(0, 12)) {
+          const results = (await Promise.all(prompts.slice(0, 12).map(async (rawPrompt) => {
             const imgPrompt = String(rawPrompt || "").trim();
-            if (!imgPrompt) continue;
+            if (!imgPrompt) return null;
             const seed = Math.floor(Math.random() * 1e6);
             const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt.slice(0, 400))}?width=640&height=360&nologo=true&seed=${seed}`;
             let directUrl = pollinationsUrl;
@@ -736,9 +735,9 @@ export async function runAgentLoop(opts) {
                 embedUrl = pollinationsUrl;
               }
             }
-            results.push({ prompt: imgPrompt, url: embedUrl });
-          }
-          output = `Generated ${results.length} images in one batch:\n${results.map((r, i) => `${i + 1}. Image URL: ${r.url}\nPrompt: ${r.prompt}`).join("\n")}`;
+            return { prompt: imgPrompt, url: embedUrl };
+          }))).filter(Boolean);
+          output = `Generated ${results.length} images in parallel batch:\n${results.map((r, i) => `${i + 1}. Image URL: ${r.url}\nPrompt: ${r.prompt}`).join("\n")}`;
           tc.url = results[0]?.url;
         } else if (call.name === "free_chat") {
           // Free chat with the Supercool MCP agent — a second AI the builder can
