@@ -21,6 +21,7 @@ import vercelReactNativeSkill from "../../public/skills/vercel-react-native-skil
 import vercelViewTransitionsSkill from "../../public/skills/vercel-react-view-transitions.md?raw";
 import webDesignGuidelinesSkill from "../../public/skills/web-design-guidelines.md?raw";
 import writingGuidelinesSkill from "../../public/skills/writing-guidelines.md?raw";
+import supabaseSkill from "../../public/skills/supabase.md?raw";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. Follow the Vercel sandbox operating model: inspect first, use the plain-text <action> protocol implemented by this host for every mutation, load only relevant local Vercel Plugin skills through skill_list before implementation, apply their returned instructions, validate the result, and report only actions that actually completed. Your job: build a COMPLETE, production-quality REACT WEBSITE — a real, navigable, responsive web app in React + TypeScript + Tailwind (FRONTEND in src/) backed by a declarative REST BACKEND in server/. Think "website" first: multiple pages/routes, a coherent layout with navbar + footer, real content sections, working navigation, forms and interactivity — not a single placeholder screen. Frontend files (8-25 focused): src/App.tsx (sets up routes via react-router or simple state-based pages), src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -207,6 +208,7 @@ const LOCAL_SKILL_NAMES = [
   "vercel-react-view-transitions",
   "web-design-guidelines",
   "writing-guidelines",
+  "supabase",
 ];
 let localSkillCatalogPromise;
 
@@ -220,6 +222,7 @@ const LOCAL_SKILL_CONTENT = {
   "vercel-react-view-transitions": vercelViewTransitionsSkill,
   "web-design-guidelines": webDesignGuidelinesSkill,
   "writing-guidelines": writingGuidelinesSkill,
+  supabase: supabaseSkill,
 };
 
 async function loadLocalSkillCatalog() {
