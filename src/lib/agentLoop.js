@@ -360,6 +360,8 @@ export async function runAgentLoop(opts) {
   const files = { ...opts.files };
   let changed = false;
   const loadedSkills = new Set();
+  const completedActions = new Set();
+  let firstActionChecked = false;
   const projectMap = summarizeProjectMap(files, opts.prompt || opts.task || "");
   const listing = Object.keys(files).length
     ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}${projectMap ? `\n\n${projectMap}` : ""}`
@@ -495,6 +497,12 @@ export async function runAgentLoop(opts) {
     let streamIdx = 0;
     let pendingFinish = null;
 
+    // Enforce the first-action gate before any parallel work can start.
+    if (!firstActionChecked && (calls[0]?.name !== "skill_list" || String(calls[0]?.args.query || calls[0]?.body || "").trim().toLowerCase() !== "web-design-guidelines")) {
+      convo.push({ role: "user", content: 'Invalid action order. The next reply MUST start with <action name="skill_list" query="web-design-guidelines"/>.' });
+      continue;
+    }
+
     // Start every separately emitted generate_image action at once. This keeps
     // one prompt per tool call while avoiding the old sequential bottleneck.
     const imageCalls = calls.filter((call) => call.name === "generate_image");
@@ -523,8 +531,18 @@ export async function runAgentLoop(opts) {
     }
 
     for (const call of calls) {
+      if (!firstActionChecked) {
+        firstActionChecked = true;
+        if (call.name !== "skill_list" || String(call.args.query || call.body || "").trim().toLowerCase() !== "web-design-guidelines") {
+          opts.onEvent({ type: "status", text: "رفضت دورة غير صالحة: يجب تحميل مهارة التصميم أولاً." });
+          firstActionChecked = false;
+          convo.push({ role: "user", content: 'Invalid action order. The next reply MUST start with <action name="skill_list" query="web-design-guidelines"/>.' });
+          break;
+        }
+      }
       if (call.name === "generate_image" && imageCalls.length > 1) continue;
       const isWriteEdit = call.name === "write_file" || call.name === "edit_file";
+      const isMutation = isWriteEdit || call.name === "delete_file" || call.name.startsWith("supabase_");
       const reuseId = isWriteEdit && streamed[streamIdx] ? streamed[streamIdx].id : null;
       if (isWriteEdit) streamIdx++;
       const tc = { id: reuseId ?? uid(), name: call.name, args: call.args, status: "running" };
@@ -532,6 +550,16 @@ export async function runAgentLoop(opts) {
       opts.onEvent({ type: "tool", call: tc });
       let output = "";
       try {
+        if (isMutation) {
+          const actionKey = `${call.name}:${normalizePath(call.args.path || call.args.from || "")}`;
+          if (completedActions.has(actionKey) && call.name !== "edit_file") {
+            throw new Error(`Duplicate action blocked: ${actionKey}`);
+          }
+          if (!loadedSkills.has("web-design-guidelines")) {
+            throw new Error('Load skill_list with query="web-design-guidelines" before modifying project files.');
+          }
+          completedActions.add(actionKey);
+        }
         if (call.name === "list_files") {
           output = Object.keys(files).map((p) => `${p} (${files[p].split("\n").length} lines)`).join("\n") || "(empty)";
         } else if (call.name === "read_file") {
