@@ -588,6 +588,32 @@ export async function runAgentLoop(opts) {
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
+        } else if (call.name === "git_clone") {
+          const url = String(call.args.url || call.body || "").trim();
+          const branch = String(call.args.branch || "").trim();
+          if (!/^https:\/\/github\\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\\.git)?\/?$/.test(url)) throw new Error("git_clone supports public GitHub repository URLs only.");
+          const resp = await base44.functions.invoke("githubClone", { url, branch: branch || undefined });
+          const d = resp?.data;
+          if (!d || d.error) throw new Error(d?.error || "clone failed");
+          const imported = d.files && typeof d.files === "object" ? d.files : {};
+          if (!Object.keys(imported).length) throw new Error("Clone returned no files; repository was not imported.");
+          for (const [filePath, content] of Object.entries(imported)) {
+            const safePath = normalizePath(filePath);
+            if (safePath && !safePath.startsWith("..") && typeof content === "string") files[safePath] = content;
+          }
+          changed = true;
+          output = `Cloned ${d.repository || url} (${Object.keys(imported).length} files${d.branch ? `, branch ${d.branch}` : ""}).`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "push_github") {
+          const repo = String(call.args.repo || "vibe-app").trim().replace(/\s+/g, "-").slice(0, 60) || "vibe-app";
+          const isPrivate = String(call.args.private || "false").toLowerCase() === "true";
+          const commitMessage = String(call.args.message || call.body || "chore: push generated app").trim().slice(0, 200);
+          const projectFiles = buildProjectFiles(files);
+          const resp = await base44.functions.invoke("githubPush", { files: projectFiles, repo, private: isPrivate, commitMessage });
+          const d = resp?.data;
+          if (!d || d.error) throw new Error(d?.error || "push failed");
+          output = `Pushed to ${d.url} (commit ${d.commitSha}, ${d.files} files)`;
+          tc.url = d.url;
         } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user"].includes(call.name)) {
           const path = normalizePath(call.args.path || "");
           const source = path ? files[path] : "";
@@ -625,33 +651,6 @@ export async function runAgentLoop(opts) {
           else if (call.name === "summarize_file") output = source ? `${path}: ${source.split("\\n").length} lines, ${source.length} characters.` : `Missing: ${path}`;
           else if (call.name === "ask_user") output = `Question queued for the user: ${call.args.question || call.body || "Please choose an option."}`;
 
-          if (call.name === "git_clone") {
-            const url = String(call.args.url || call.body || "").trim();
-            const branch = String(call.args.branch || "").trim();
-            if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/.test(url)) throw new Error("git_clone supports public GitHub repository URLs only.");
-            const resp = await base44.functions.invoke("githubClone", { url, branch: branch || undefined });
-            const d = resp?.data;
-            if (!d || d.error) throw new Error(d?.error || "clone failed");
-            const imported = d.files && typeof d.files === "object" ? d.files : {};
-            if (!Object.keys(imported).length) throw new Error("Clone returned no files; repository was not imported.");
-            for (const [filePath, content] of Object.entries(imported)) {
-              const safePath = normalizePath(filePath);
-              if (safePath && !safePath.startsWith("..") && typeof content === "string") files[safePath] = content;
-            }
-            changed = true;
-            output = `Cloned ${d.repository || url} (${Object.keys(imported).length} files${d.branch ? `, branch ${d.branch}` : ""}).`;
-            opts.onEvent({ type: "files", files: { ...files } });
-          } else {
-          const repo = String(call.args.repo || "vibe-app").trim().replace(/\s+/g, "-").slice(0, 60) || "vibe-app";
-          const isPrivate = String(call.args.private || "false").toLowerCase() === "true";
-          const commitMessage = String(call.args.message || call.body || "chore: push generated app").trim().slice(0, 200);
-          const projectFiles = buildProjectFiles(files);
-          const resp = await base44.functions.invoke("githubPush", { files: projectFiles, repo, private: isPrivate, commitMessage });
-          const d = resp?.data;
-          if (!d || d.error) throw new Error(d?.error || "push failed");
-          output = `Pushed to ${d.url} (commit ${d.commitSha}, ${d.files} files)`;
-          tc.url = d.url;
-          }
         } else if (call.name === "generate_image") {
           // Free image generation via the Supercool cover-image endpoint (anon
           // token, no Base44 credits). Falls back to keyless Pollinations. The
