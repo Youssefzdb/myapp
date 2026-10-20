@@ -192,7 +192,8 @@ Operating protocol — follow this on every request:
 
 Rules:
 - You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
-- Write complete, working code: no placeholders, TODOs or ellipses. Every visible action must work (state, CRUD, forms, filters, navigation via state). Persist data via the REST API (/api/:collection) which the platform serves live; use localStorage only for UI preferences.
+  - Write complete, working code: no placeholders, TODOs or ellipses. Every visible action must work (state, CRUD, forms, filters, navigation via state). Persist data via the REST API (/api/:collection) which the platform serves live; use localStorage only for UI preferences.
+  - File update rule: before changing an existing file, use edit_file with an exact SEARCH/REPLACE block. Never recreate an existing file with write_file; write_file is only for genuinely new files. If an edit fails because the search text is stale, read the file again and retry with the current exact text. Multiple edits to the same existing file are allowed and must not be treated as duplicates.
 - src/App.tsx must export default function App(). Import local files via relative paths or the @/ alias (= src/). Never import a file you have not written. No circular imports.
 - FRONTEND packages (src/*): react, lucide-react (only real icon names) and browser-safe npm packages from esm.sh. No Node APIs or server-only code in src/. Styling: Tailwind utilities only. Images: ONLY URLs returned by the generate_image tool — never unsplash, placeholder, pollinations, emoji stand-ins, or empty src.
 - BACKEND (server/*): a DECLARATIVE REST API. server/api.json declares "collections" (each an object of field-name → type) and an optional "seed" object mapping collection → array of initial docs. server/index.js is a real Express app that auto-serves standard REST over those collections (GET/POST /api/:c, GET/PUT/DELETE /api/:c/:id) so the repo runs locally with \`node server/index.js\`. The LIVE in-app preview AND the published link run the SAME /api/:c REST automatically on the platform — the host intercepts fetch('/api/...') and serves it from a real persistent store. No eval, no running server needed in the preview.
@@ -378,9 +379,12 @@ async function toDataUrl(url, signal) {
 export async function runAgentLoop(opts) {
   const files = { ...opts.files };
   let changed = false;
+  // Persist skill state across turns: history contains prior tool results, so a
+  // skill loaded in an earlier turn must not be requested again.
   const loadedSkills = new Set();
-  const completedActions = new Set();
-  let firstActionChecked = false;
+  const historyText = opts.history.map((entry) => String(entry.content || "")).join("\n");
+  if (/web-design-guidelines|Skills matching "web-design-guidelines"/i.test(historyText)) loadedSkills.add("web-design-guidelines");
+  let firstActionChecked = loadedSkills.has("web-design-guidelines");
   const projectMap = summarizeProjectMap(files, opts.prompt || opts.task || "");
   const listing = Object.keys(files).length
     ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}${projectMap ? `\n\n${projectMap}` : ""}`
@@ -389,7 +393,7 @@ export async function runAgentLoop(opts) {
     ...opts.history,
     { role: "user", content: `Task: ${opts.prompt}\n\n${listing}\n\nReply now with plain-text action tags.` },
   ];
-  const maxSteps = opts.maxSteps ?? 14;
+  const maxSteps = opts.maxSteps ?? 24;
   const MAX_VERIFY = 1;
   let verifyCount = 0;
   const available = Array.isArray(opts.availableModels) ? opts.availableModels : [];
@@ -513,6 +517,7 @@ export async function runAgentLoop(opts) {
     }
 
     const toolResults = [];
+    const actionKeysThisTurn = new Set();
     let streamIdx = 0;
     let pendingFinish = null;
 
@@ -571,9 +576,10 @@ export async function runAgentLoop(opts) {
       try {
         if (isMutation) {
           const actionKey = `${call.name}:${normalizePath(call.args.path || call.args.from || "")}`;
-          if (completedActions.has(actionKey) && call.name !== "edit_file") {
-            throw new Error(`Duplicate action blocked: ${actionKey}`);
+          if (actionKeysThisTurn.has(actionKey) && call.name !== "edit_file") {
+            throw new Error(`Duplicate action in the same response blocked: ${actionKey}`);
           }
+          actionKeysThisTurn.add(actionKey);
           if (!loadedSkills.has("web-design-guidelines")) {
             throw new Error('Load skill_list with query="web-design-guidelines" before modifying project files.');
           }
@@ -1002,5 +1008,12 @@ export async function runAgentLoop(opts) {
   }
 
   opts.onEvent({ type: "status", text: null });
-  return { files, summary: "اكتملت الخطوات", changed };
+  return {
+    files,
+    summary: changed
+      ? "توقف التنفيذ قبل finish بسبب بلوغ حد الخطوات. الملفات المحفوظة محفوظة؛ أرسل أكمل للمتابعة."
+      : "لم يكتمل التنفيذ قبل بلوغ حد الخطوات.",
+    changed,
+    incomplete: true,
+  };
 }
