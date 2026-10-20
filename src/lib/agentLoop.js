@@ -327,16 +327,17 @@ export async function runAgentLoop(opts) {
   const listing = Object.keys(files).length
     ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}${projectMap ? `\n\n${projectMap}` : ""}`
     : "The project is empty.";
+  const fastMode = opts.fastMode !== false;
   const convo = [
-    ...opts.history,
-    { role: "user", content: `Task: ${opts.prompt}\n\n${listing}\n\nReply now with plain-text action tags.` },
+  ...opts.history,
+  { role: "user", content: `${fastMode ? "FAST MODE: act immediately, keep reasoning minimal, batch independent read-only tool calls, and avoid unnecessary verification loops.\n\n" : ""}Task: ${opts.prompt}\n\n${listing}\n\nReply now with plain-text action tags.` },
   ];
-  const maxSteps = opts.maxSteps ?? 14;
+  const maxSteps = opts.maxSteps ?? (fastMode ? 10 : 14);
   const MAX_VERIFY = 1;
   let verifyCount = 0;
   const available = Array.isArray(opts.availableModels) ? opts.availableModels : [];
   const routeModel = (step, request) => {
-    const category = classifyStep(request, {
+  const category = fastMode && !opts.referenceImages?.length ? "quick_edit" : classifyStep(request, {
       step,
       hasImages: !!(opts.referenceImages && opts.referenceImages.length),
       isNewProject: Object.keys(files).length === 0,
