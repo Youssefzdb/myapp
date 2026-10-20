@@ -20,6 +20,7 @@ import vercelReactBestPracticesSkill from "../../public/skills/vercel-react-best
 import vercelReactNativeSkill from "../../public/skills/vercel-react-native-skills.md?raw";
 import vercelViewTransitionsSkill from "../../public/skills/vercel-react-view-transitions.md?raw";
 import webDesignGuidelinesSkill from "../../public/skills/web-design-guidelines.md?raw";
+import webDesignGuidelinesCommand from "../../public/skills/web-design-guidelines.command.md?raw";
 import writingGuidelinesSkill from "../../public/skills/writing-guidelines.md?raw";
 import supabaseSkill from "../../public/skills/supabase.md?raw";
 
@@ -229,7 +230,7 @@ const LOCAL_SKILL_CONTENT = {
   "vercel-react-best-practices": vercelReactBestPracticesSkill,
   "vercel-react-native-skills": vercelReactNativeSkill,
   "vercel-react-view-transitions": vercelViewTransitionsSkill,
-  "web-design-guidelines": webDesignGuidelinesSkill,
+  "web-design-guidelines": `${webDesignGuidelinesSkill}\n\n--- COMMAND.md ---\n\n${webDesignGuidelinesCommand}`,
   "writing-guidelines": writingGuidelinesSkill,
   supabase: supabaseSkill,
 };
