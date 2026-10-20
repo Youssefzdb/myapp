@@ -186,34 +186,36 @@ setAgentDefault(AGENT_SYSTEM);
 const PLAIN_TEXT_PREFIX =
   "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
 
-const PUBLIC_SKILL_REPO = "https://api.github.com/repos/vercel/vercel-plugin";
-const PUBLIC_SKILL_RAW = "https://raw.githubusercontent.com/vercel/vercel-plugin/main/skills";
-let publicSkillCatalogPromise;
-const publicSkillHeaders = { Accept: "application/vnd.github+json", "User-Agent": "vibe-studio-skill-loader" };
+const LOCAL_SKILL_NAMES = [
+  "deploy-to-vercel",
+  "vercel-cli-with-tokens",
+  "vercel-composition-patterns",
+  "vercel-optimize",
+  "vercel-react-best-practices",
+  "vercel-react-native-skills",
+  "vercel-react-view-transitions",
+  "web-design-guidelines",
+  "writing-guidelines",
+];
+let localSkillCatalogPromise;
 
-async function loadPublicSkillCatalog() {
-  if (!publicSkillCatalogPromise) {
-    publicSkillCatalogPromise = fetch(`${PUBLIC_SKILL_REPO}/contents/skills?ref=main`, { headers: publicSkillHeaders })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Unable to load public skill catalog (HTTP ${response.status})`);
-        const entries = await response.json();
-        return entries.filter((entry) => entry.type === "dir").map((entry) => ({
-          name: entry.name,
-          category: "vercel-plugin",
-          description: `Public Vercel Plugin skill: ${entry.name}`,
-          path: entry.path,
-        }));
-      });
+async function loadLocalSkillCatalog() {
+  if (!localSkillCatalogPromise) {
+    localSkillCatalogPromise = Promise.resolve(LOCAL_SKILL_NAMES.map((name) => ({
+      name,
+      category: "vercel-labs/agent-skills",
+      description: `Local Vercel skill: ${name}`,
+    })));
   }
-  return publicSkillCatalogPromise;
+  return localSkillCatalogPromise;
 }
 
-async function loadPublicSkill(name) {
-  const catalog = await loadPublicSkillCatalog();
-  const skill = catalog.find((entry) => entry.name === name || entry.path === `skills/${name}`);
+async function loadLocalSkill(name) {
+  const catalog = await loadLocalSkillCatalog();
+  const skill = catalog.find((entry) => entry.name === name);
   if (!skill) return null;
-  const response = await fetch(`${PUBLIC_SKILL_RAW}/${encodeURIComponent(skill.name)}/SKILL.md`, { headers: publicSkillHeaders });
-  if (!response.ok) throw new Error(`Unable to load skill ${skill.name} (HTTP ${response.status})`);
+  const response = await fetch(`/skills/${encodeURIComponent(skill.name)}.md`);
+  if (!response.ok) throw new Error(`Unable to load local skill ${skill.name} (HTTP ${response.status})`);
   return { ...skill, content: await response.text() };
 }
 
@@ -716,14 +718,14 @@ export async function runAgentLoop(opts) {
           if (r.status >= 400) throw new Error(output);
         } else if (call.name === "skill_list") {
           const q = String(call.args.query || call.body || "").trim().toLowerCase();
-          const catalog = await loadPublicSkillCatalog();
+          const catalog = await loadLocalSkillCatalog();
           const matches = q
             ? catalog.filter((skill) => `${skill.name} ${skill.category} ${skill.description}`.toLowerCase().includes(q))
             : catalog;
           if (q) {
             const loaded = [];
             for (const skill of matches) {
-              const full = await loadPublicSkill(skill.name);
+              const full = await loadLocalSkill(skill.name);
               if (full) { loadedSkills.add(full.name); loaded.push(full); }
             }
             output = loaded.length
