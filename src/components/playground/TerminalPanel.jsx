@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { appParams } from '@/lib/app-params';
 import { Play, Terminal as TerminalIcon, Loader2 } from 'lucide-react';
 
 const QUICK_COMMANDS = ['pwd', 'ls', 'find . -maxdepth 2 -type f', 'cat package.json'];
@@ -16,11 +17,17 @@ export default function TerminalPanel() {
     setLines((current) => [...current, { type: 'command', text: `$ ${value}` }]);
     setRunning(true);
     try {
+      if (!appParams.appId || !appParams.appBaseUrl) {
+        throw new Error('Sandbox bridge غير متصل: إعدادات Base44 مفقودة في Preview.');
+      }
       const response = await base44.functions.invoke('sandboxTerminal', { command: value, cwd: '.' });
       const result = response?.data || {};
+      if (result.status === 404 || result.error === 'sandbox_not_found') {
+        throw new Error('Sandbox bridge غير متاح: خدمة sandboxTerminal غير منشورة أو الـ Sandbox غير موجود.');
+      }
       setLines((current) => [...current, { type: result.error ? 'error' : 'output', text: result.error || result.stdout || result.output || '(بدون مخرجات)' }]);
     } catch (error) {
-      setLines((current) => [...current, { type: 'error', text: `Bridge error: ${error?.message || error}` }]);
+      setLines((current) => [...current, { type: 'error', text: error?.message || 'تعذر الاتصال بالـ Sandbox bridge.' }]);
     } finally {
       setRunning(false);
     }
