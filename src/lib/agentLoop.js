@@ -611,10 +611,35 @@ export async function runAgentLoop(opts) {
             const url = String(call.args.url || call.body || "").trim();
             const branch = String(call.args.branch || "").trim();
             if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/.test(url)) throw new Error("git_clone supports public GitHub repository URLs only.");
-            const resp = await base44.functions.invoke("githubClone", { url, branch: branch || undefined });
-            const d = resp?.data;
-            if (!d || d.error) throw new Error(d?.error || "clone failed");
-            const imported = d.files && typeof d.files === "object" ? d.files : {};
+            const repoMatch = url.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/);
+            if (!repoMatch) throw new Error("git_clone supports public GitHub repository URLs only.");
+            const [, owner, repo] = repoMatch;
+            const apiBase = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+            const headers = { Accept: "application/vnd.github+json" };
+            const repoResponse = await fetch(apiBase, { headers, signal: opts.signal });
+            if (!repoResponse.ok) {
+              const detail = repoResponse.status === 404 ? "Repository not found or private." : `GitHub returned HTTP ${repoResponse.status}.`;
+              throw new Error(detail);
+            }
+            const repoData = await repoResponse.json();
+            const ref = branch || repoData.default_branch;
+            const treeResponse = await fetch(`${apiBase}/git/trees/${encodeURIComponent(ref)}?recursive=1`, { headers, signal: opts.signal });
+            if (!treeResponse.ok) throw new Error(`Unable to read branch '${ref}' (GitHub HTTP ${treeResponse.status}).`);
+            const treeData = await treeResponse.json();
+            if (treeData.truncated) throw new Error("Repository is too large to clone in one operation.");
+            const blobs = (treeData.tree || []).filter((entry) => entry.type === "blob");
+            const imported = {};
+            for (const entry of blobs) {
+              const blobResponse = await fetch(`${apiBase}/git/blobs/${entry.sha}`, { headers, signal: opts.signal });
+              if (!blobResponse.ok) throw new Error(`Unable to read ${entry.path} (GitHub HTTP ${blobResponse.status}).`);
+              const blob = await blobResponse.json();
+              if (blob.encoding !== "base64") continue;
+              const binary = atob(blob.content.replace(/\s/g, ""));
+              const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+              const isText = !bytes.slice(0, 4096).some((byte) => byte === 0);
+              if (isText) imported[entry.path] = new TextDecoder().decode(bytes);
+            }
+            const d = { repository: `${owner}/${repo}`, branch: ref, files: imported };
             if (!Object.keys(imported).length) throw new Error("Clone returned no files; repository was not imported.");
             for (const [filePath, content] of Object.entries(imported)) {
               const safePath = normalizePath(filePath);
