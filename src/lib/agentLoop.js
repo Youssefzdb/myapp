@@ -615,7 +615,7 @@ export async function runAgentLoop(opts) {
             if (!repoMatch) throw new Error("git_clone supports public GitHub repository URLs only.");
             const [, owner, repo] = repoMatch;
             const apiBase = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-            const headers = { Accept: "application/vnd.github+json" };
+            const headers = { Accept: "application/vnd.github+json", "User-Agent": "builder-github-import" };
             const repoResponse = await fetch(apiBase, { headers, signal: opts.signal });
             if (!repoResponse.ok) {
               const detail = repoResponse.status === 404 ? "Repository not found or private." : `GitHub returned HTTP ${repoResponse.status}.`;
@@ -630,12 +630,22 @@ export async function runAgentLoop(opts) {
             const blobs = (treeData.tree || []).filter((entry) => entry.type === "blob");
             const imported = {};
             for (const entry of blobs) {
-              const blobResponse = await fetch(`${apiBase}/git/blobs/${entry.sha}`, { headers, signal: opts.signal });
-              if (!blobResponse.ok) throw new Error(`Unable to read ${entry.path} (GitHub HTTP ${blobResponse.status}).`);
-              const blob = await blobResponse.json();
-              if (blob.encoding !== "base64") continue;
-              const binary = atob(blob.content.replace(/\s/g, ""));
-              const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+              // The Contents/Git Blob API is aggressively rate-limited and may return
+              // 403 during a larger import. Prefer the raw file CDN, then fall back to
+              // the blob API for hosts where raw access is unavailable.
+              const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
+              let fileResponse = await fetch(rawUrl, { signal: opts.signal });
+              let bytes;
+              if (fileResponse.ok) {
+                bytes = new Uint8Array(await fileResponse.arrayBuffer());
+              } else {
+                const blobResponse = await fetch(`${apiBase}/git/blobs/${entry.sha}`, { headers, signal: opts.signal });
+                if (!blobResponse.ok) throw new Error(`Unable to read ${entry.path} (raw GitHub HTTP ${fileResponse.status}; API HTTP ${blobResponse.status}).`);
+                const blob = await blobResponse.json();
+                if (blob.encoding !== "base64") continue;
+                const binary = atob(blob.content.replace(/\s/g, ""));
+                bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+              }
               const isText = !bytes.slice(0, 4096).some((byte) => byte === 0);
               if (isText) imported[entry.path] = new TextDecoder().decode(bytes);
             }
