@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Eye, Code, Monitor, Tablet, Smartphone, Copy, Download, Check, Files, ArrowLeft, ArrowRight, RotateCw, Globe, Database, List } from 'lucide-react';
+import { Eye, Code, Monitor, Tablet, Smartphone, Copy, Download, Check, Files, ArrowLeft, ArrowRight, RotateCw, Globe, Database, List, Terminal } from 'lucide-react';
 import CodeView from './CodeView';
 import FileTree from './FileTree';
 import ApiExplorer from './ApiExplorer';
+import TerminalPanel from './TerminalPanel';
 import { buildPreviewHtml } from '@/lib/preview';
 import { serializeFiles, totalLines } from '@/lib/files';
 import { detectPages } from '@/lib/pages';
@@ -137,6 +138,12 @@ export default function PreviewPanel({
             >
               <Database className="w-4 h-4" />API
             </button>
+            <button
+              onClick={() => setView('terminal')}
+              className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-sm ${view === 'terminal' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+            >
+              <Terminal className="w-4 h-4" />Terminal
+            </button>
           </div>
 
           {view === 'code' && fileCount > 0 && (
@@ -256,6 +263,8 @@ export default function PreviewPanel({
           </div>
         ) : view === 'api' ? (
           <ApiExplorer files={files} previewId={previewId} />
+        ) : view === 'terminal' ? (
+          <TerminalPanel />
         ) : (
           <>
             {showTree && fileCount > 0 && (

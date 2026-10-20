@@ -164,10 +164,10 @@ export async function streamChat(opts) {
       const t = setTimeout(resolve, ms);
       opts.signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
     });
-  const BACKOFFS = [2000, 4000, 8000, 16000, 30000, 30000, 30000];
-  // Per-stall cap: abort only when NO data arrives for this long. A long but
-  // continuously-streaming reply (e.g. a large file) is never cut off by it.
-  const STALL_TIMEOUT_MS = 120000;
+  const BACKOFFS = [500, 1000, 2000, 4000, 8000, 12000, 12000];
+  // Fast mode retries quickly while still allowing continuously streaming replies
+  // to finish. A user abort always wins immediately.
+  const STALL_TIMEOUT_MS = 45000;
   let lastErr = "تعذّر الحصول على رد من النموذج بعد عدة محاولات، حاول مرة أخرى.";
   let stalled = false;
   for (let attempt = 0; attempt < BACKOFFS.length; attempt++) {

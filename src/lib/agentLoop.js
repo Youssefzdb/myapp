@@ -148,7 +148,7 @@ Extra tools (the host executes them for real and returns results):
 - curl: the tool's historical name for a browser HTTP request, NOT a shell or the curl executable. Sends method, headers (JSON object string), and body directly to the specified URL; returns the actual HTTP status, available response headers, and body. CORS restrictions still apply. raw.githubusercontent.com and api.github.com allow public browser reads. No Base44 function, no external command execution. Never claim this bypasses CORS or successfully fetched a page when the tool returns an error. Do not repeatedly retry an identical failed request.
   - git_clone: clone a public GitHub repository into the current workspace. Pass url (https://github.com/owner/repo or .git URL) and optional branch. The host must return the repository files; never simulate a clone or claim success without imported files.
   - push_github: push the current project to the user's connected GitHub repo (creates the repo if needed and commits all files). Optional attrs: repo (default "vibe-app"), private ("true"/"false"), message. Use it when the user asks to push/upload to GitHub, or automatically once the app is complete and working if they asked for auto-push. Returns the repo URL.
-  - skill_list: browse and load building skills from the platform's skill library. With no query (skill_list), returns the catalog (name + category + description). With query="<term>" (e.g. <action name="skill_list" query="charts"/>), returns the FULL instructions of matching skills (ui, data, auth, integration, backend, advanced). Loading is mandatory: before any Supabase/database/auth/backend implementation, first call skill_list with query="supabase" or the closest relevant skill, then follow its returned instructions. Do NOT load every skill; only what the current task needs.
+  - skill_list: browse and load building skills from the platform's skill library. With no query (skill_list), returns the catalog (name + category + description). With query="<term>" (e.g. <action name="skill_list" query="charts"/>), returns the FULL instructions of matching skills (ui, data, auth, integration, backend, advanced). Loading is mandatory, not optional: every build/modify/debug request MUST begin by loading the relevant frontend and backend/development skills before inspecting or changing project files. Use <action name="skill_list" query="frontend"/> and <action name="skill_list" query="backend"/> as the first actions, then load narrower skills required by the request (for example supabase, auth, database, charts). Do not claim that a skill was loaded unless a real skill_list result was returned. Do NOT skip or defer this bootstrap.
   - Supabase backend actions: supabase_init creates the safe client/config scaffold, supabase_schema writes a reviewed SQL migration with RLS, supabase_auth creates email/password auth helpers, supabase_validate checks the generated Supabase files, and supabase_upload prepares the migration for deployment. Never write service-role keys into generated frontend files and never claim a migration was deployed unless the upload action returns success.
 - verify_preview: captures a real screenshot of the LIVE rendered preview and runs a FREE visual sanity check (no credits): blank page, error screen, or near-empty render. Returns ok plus any issues found. Call it proactively when you suspect the render is broken. A visual check ALSO runs automatically right before finish — if it finds issues, fix them with write_file/edit_file and call finish again.
   Use these tools when they genuinely improve the result; don't call them for trivial apps.
@@ -156,7 +156,11 @@ Extra tools (the host executes them for real and returns results):
 WHEN THE PROMPT STARTS WITH "[REFERENCE IMAGES — pixel-accurate clone target]": the user attached a screenshot to clone. Treat the analysis spec as ground truth and reproduce the layout at 99-100% fidelity — match the exact section order, visual hierarchy, color palette (use the exact hex values given), spacing/rhythm, typography sizes & weights, corner radii, shadows, and component composition. Use generate_image for any hero/section imagery the spec describes, matching its style and palette. Use the spec's copy verbatim. Build the full working app — interactive, responsive, and RTL if the source is RTL — never a static screenshot. Recreate EVERY visible region; do not simplify or omit sections. The goal is a near-identical clone.
 
 Operating protocol — follow this on every request:
-- First classify the request as build, modify, debug, explain, inspect, or research. For build/modify/debug, take action with tools; do not only describe a solution.
+- MANDATORY SKILL BOOTSTRAP: for every build, modify, debug, or explicit tool/skill audit request, your first tool actions MUST be <action name="skill_list" query="frontend"/> and <action name="skill_list" query="backend"/>. Do this before list_files, read_file, check_project, writing code, or any other action.
+- COMPLETE TOOL AUDIT MODE: when the user asks to test, verify, enumerate, or run all tools/tool calls, do not choose only a useful subset. Enter an explicit audit loop: enumerate every declared action in this prompt, call every safe read-only action exactly once with valid minimal arguments, and report a result for every action. Then call every mutating action only in dry-run/preview mode if that action supports it; otherwise do not execute it without explicit user approval. Include a checklist with tool name, arguments, status, returned error, and whether the implementation is real or placeholder. Never stop after 10 tools, never claim all tools were tested when any declared action is missing, and continue across multiple replies until the checklist is complete.
+- COMPLETE SKILL AUDIT MODE: when the user asks to load/test all skills, first call <action name="skill_list"/> to retrieve the complete public catalog, then call <action name="skill_list" query="<exact skill name>"/> for every catalog entry and wait for each full result. Track every skill as loaded/failed and do not claim completion until all entries are accounted for.
+- If the request involves data, auth, Supabase, or integrations, immediately load the specific matching skill after the bootstrap calls. Never proceed on assumptions when the required skill result was not returned.
+- First classify the request as build, modify, debug, explain, inspect, or research. For build/modify/debug, take action with tools; do not only describe a solution. For explain/research, load skills only when the answer depends on a platform capability.
 - Before changing an existing project, inspect the minimum relevant files and the current project map. Do not overwrite unrelated work or invent files that already exist.
 - Plan internally in small milestones: understand → inspect → implement → validate → summarize. Expose only a brief user-language progress sentence before actions; never dump hidden chain-of-thought.
 - Prefer the smallest complete patch. Keep components focused, preserve existing conventions, and reuse existing utilities/components before adding dependencies.
@@ -166,6 +170,7 @@ Operating protocol — follow this on every request:
 - Use skills deliberately: call skill_list only for a relevant topic, load its instructions before implementing unfamiliar functionality, and apply the loaded guidance rather than merely listing it.
 - Batch independent reads/actions when possible, but keep dependent actions sequential. After each tool result, reassess and continue until the requested outcome is actually complete.
 - Finish only after check_project and any relevant preview/accessibility checks pass. If blocked, state the exact blocker and what remains unverified.
+- In audit mode, use only harmless sample paths/queries and never delete, overwrite, push, upload, clone, or mutate project data unless the user explicitly approved that specific operation. A 404/403/unsupported action is a recorded test result, not a reason to skip the remaining tools.
 
 Rules:
 - You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
@@ -186,20 +191,36 @@ setAgentDefault(AGENT_SYSTEM);
 const PLAIN_TEXT_PREFIX =
   "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
 
-const DEVELOPMENT_SKILLS = [
-  { name: "react_architecture", category: "development", description: "Design maintainable React components, state boundaries, hooks, and composition patterns.", content: "Use small focused components, explicit props, stable keys, controlled forms, and keep server/data concerns outside presentational components. Reuse existing components before creating new ones." },
-  { name: "typescript_quality", category: "development", description: "Improve TypeScript safety, data contracts, narrowing, and error handling.", content: "Define types for API responses and component props, avoid any, narrow unknown errors, validate external data, and keep null states explicit." },
-  { name: "api_design", category: "backend", description: "Design reliable REST APIs with validation, errors, pagination, and consistent responses.", content: "Use resource-oriented routes, validate input at the boundary, return consistent JSON errors, enforce limits, and never trust client-provided ownership or totals." },
-  { name: "database_schema", category: "data", description: "Model relational data with constraints, indexes, migrations, and ownership rules.", content: "Prefer normalized tables, foreign keys, useful indexes, not-null constraints, timestamps, and explicit ownership. Add RLS for exposed Supabase tables." },
-  { name: "supabase_security", category: "integration", description: "Build secure Supabase data access with RLS and least privilege.", content: "Enable RLS on every exposed table, scope policies by auth.uid(), use publishable keys in clients, never expose service-role secrets, and validate required columns before writes." },
-  { name: "authentication", category: "auth", description: "Implement secure email/password authentication and protected application flows.", content: "Use the existing auth provider, protect routes server-side where possible, genericize credential errors, handle unconfirmed email, and never implement mock authentication." },
-  { name: "forms_validation", category: "development", description: "Build accessible forms with validation, loading states, and safe submission.", content: "Use labels, aria-invalid, client feedback, server validation, disabled pending states, and preserve user input after recoverable errors." },
-  { name: "testing_debugging", category: "development", description: "Diagnose runtime issues and add focused tests or verification paths.", content: "Reproduce first, inspect console and network errors, make the smallest fix, then verify the affected flow and edge cases. Do not hide errors with broad catches." },
-  { name: "performance", category: "advanced", description: "Optimize rendering, loading, bundle size, and perceived performance.", content: "Measure before optimizing, avoid unnecessary renders, lazy-load heavy features, paginate large data, cache stable reads, and keep interactions responsive." },
-  { name: "accessibility", category: "ui", description: "Create keyboard-friendly, semantic, screen-reader accessible interfaces.", content: "Use semantic landmarks, visible focus, correct labels, keyboard interaction, sufficient contrast, alt text, and announce asynchronous status changes." },
-  { name: "responsive_ui", category: "ui", description: "Create mobile-first layouts that work across viewport sizes.", content: "Start with a single-column mobile layout, use flex/grid and responsive breakpoints, avoid fixed widths, test narrow and wide screens, and prevent horizontal overflow." },
-  { name: "security_review", category: "advanced", description: "Review frontend and backend changes for common security weaknesses.", content: "Treat external content as untrusted, validate paths and URLs, prevent injection, avoid leaking secrets, enforce authorization on every data operation, and use secure headers." },
-];
+const PUBLIC_SKILL_REPO = "https://api.github.com/repos/vercel/vercel-plugin";
+const PUBLIC_SKILL_RAW = "https://raw.githubusercontent.com/vercel/vercel-plugin/main/skills";
+let publicSkillCatalogPromise;
+const publicSkillHeaders = { Accept: "application/vnd.github+json", "User-Agent": "vibe-studio-skill-loader" };
+
+async function loadPublicSkillCatalog() {
+  if (!publicSkillCatalogPromise) {
+    publicSkillCatalogPromise = fetch(`${PUBLIC_SKILL_REPO}/contents/skills?ref=main`, { headers: publicSkillHeaders })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Unable to load public skill catalog (HTTP ${response.status})`);
+        const entries = await response.json();
+        return entries.filter((entry) => entry.type === "dir").map((entry) => ({
+          name: entry.name,
+          category: "vercel-plugin",
+          description: `Public Vercel Plugin skill: ${entry.name}`,
+          path: entry.path,
+        }));
+      });
+  }
+  return publicSkillCatalogPromise;
+}
+
+async function loadPublicSkill(name) {
+  const catalog = await loadPublicSkillCatalog();
+  const skill = catalog.find((entry) => entry.name === name || entry.path === `skills/${name}`);
+  if (!skill) return null;
+  const response = await fetch(`${PUBLIC_SKILL_RAW}/${encodeURIComponent(skill.name)}/SKILL.md`, { headers: publicSkillHeaders });
+  if (!response.ok) throw new Error(`Unable to load skill ${skill.name} (HTTP ${response.status})`);
+  return { ...skill, content: await response.text() };
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const OPEN_RE = /<(tool|action)\s+name="([\w-]+)"((?:\s+[\w-]+=(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
@@ -306,16 +327,17 @@ export async function runAgentLoop(opts) {
   const listing = Object.keys(files).length
     ? `Existing project files:\n${Object.entries(files).map(([p, c]) => `- ${p} (${c.split("\n").length} lines)`).join("\n")}${projectMap ? `\n\n${projectMap}` : ""}`
     : "The project is empty.";
+  const fastMode = opts.fastMode !== false;
   const convo = [
-    ...opts.history,
-    { role: "user", content: `Task: ${opts.prompt}\n\n${listing}\n\nReply now with plain-text action tags.` },
+  ...opts.history,
+  { role: "user", content: `${fastMode ? "FAST MODE: act immediately, keep reasoning minimal, batch independent read-only tool calls, and avoid unnecessary verification loops.\n\n" : ""}Task: ${opts.prompt}\n\n${listing}\n\nReply now with plain-text action tags.` },
   ];
-  const maxSteps = opts.maxSteps ?? 14;
+  const maxSteps = opts.maxSteps ?? (fastMode ? 10 : 14);
   const MAX_VERIFY = 1;
   let verifyCount = 0;
   const available = Array.isArray(opts.availableModels) ? opts.availableModels : [];
   const routeModel = (step, request) => {
-    const category = classifyStep(request, {
+  const category = fastMode && !opts.referenceImages?.length ? "quick_edit" : classifyStep(request, {
       step,
       hasImages: !!(opts.referenceImages && opts.referenceImages.length),
       isNewProject: Object.keys(files).length === 0,
@@ -570,7 +592,7 @@ export async function runAgentLoop(opts) {
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
-        } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user"].includes(call.name)) {
+        } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user", "git_clone", "push_github"].includes(call.name)) {
           const path = normalizePath(call.args.path || "");
           const source = path ? files[path] : "";
           if (["find_files", "tree"].includes(call.name)) {
@@ -611,10 +633,66 @@ export async function runAgentLoop(opts) {
             const url = String(call.args.url || call.body || "").trim();
             const branch = String(call.args.branch || "").trim();
             if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/.test(url)) throw new Error("git_clone supports public GitHub repository URLs only.");
-            const resp = await base44.functions.invoke("githubClone", { url, branch: branch || undefined });
-            const d = resp?.data;
-            if (!d || d.error) throw new Error(d?.error || "clone failed");
-            const imported = d.files && typeof d.files === "object" ? d.files : {};
+            const repoMatch = url.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/);
+            if (!repoMatch) throw new Error("git_clone supports public GitHub repository URLs only.");
+            const [, owner, repo] = repoMatch;
+            const apiBase = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+            const headers = { Accept: "application/vnd.github+json", "User-Agent": "builder-github-import" };
+            const repoResponse = await fetch(apiBase, { headers, signal: opts.signal });
+            if (!repoResponse.ok) {
+              const detail = repoResponse.status === 404 ? "Repository not found or private." : `GitHub returned HTTP ${repoResponse.status}.`;
+              throw new Error(detail);
+            }
+            const repoData = await repoResponse.json();
+            const ref = branch || repoData.default_branch;
+            const treeResponse = await fetch(`${apiBase}/git/trees/${encodeURIComponent(ref)}?recursive=1`, { headers, signal: opts.signal });
+            if (!treeResponse.ok) throw new Error(`Unable to read branch '${ref}' (GitHub HTTP ${treeResponse.status}).`);
+            const treeData = await treeResponse.json();
+            if (treeData.truncated) throw new Error("Repository is too large to clone in one operation.");
+            const blobs = (treeData.tree || []).filter((entry) => entry.type === "blob");
+  const imported = {};
+  const skipped = [];
+  for (const entry of blobs) {
+  // Prefer the raw CDN. GitHub's unauthenticated Git Blob API is rate-limited
+  // and commonly returns 403 during imports, so a single blocked file must not
+  // abort an otherwise valid repository import.
+  const encodedPath = entry.path.split("/").map(encodeURIComponent).join("/");
+  const encodedRef = String(ref).split("/").map(encodeURIComponent).join("/");
+  const rawUrls = [
+    `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodedRef}/${encodedPath}`,
+    `https://cdn.jsdelivr.net/gh/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}@${encodedRef}/${encodedPath}`,
+    `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${encodedRef}/${encodedPath}`,
+  ];
+  let fileResponse = null;
+  for (const rawUrl of rawUrls) {
+    try {
+      const response = await fetch(rawUrl, { signal: opts.signal });
+      if (response.ok) { fileResponse = response; break; }
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+    }
+  }
+  let bytes;
+  if (fileResponse?.ok) {
+    bytes = new Uint8Array(await fileResponse.arrayBuffer());
+  } else {
+    try {
+      const blobResponse = await fetch(`${apiBase}/git/blobs/${entry.sha}`, { headers, signal: opts.signal });
+      if (!blobResponse.ok) { skipped.push(`${entry.path} (GitHub HTTP ${blobResponse.status})`); continue; }
+      const blob = await blobResponse.json();
+      if (blob.encoding !== "base64") { skipped.push(`${entry.path} (unsupported encoding)`); continue; }
+      const binary = atob(blob.content.replace(/\s/g, ""));
+      bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+      skipped.push(`${entry.path} (unavailable)`);
+      continue;
+    }
+  }
+  const isBinary = /\.(png|jpe?g|gif|webp|ico|svg|woff2?|ttf|otf|mp3|mp4|pdf|zip)$/i.test(entry.path);
+  imported[normalizePath(entry.path)] = isBinary ? `data:application/octet-stream;base64,${btoa(String.fromCharCode(...bytes))}` : new TextDecoder().decode(bytes);
+  }
+            const d = { repository: `${owner}/${repo}`, branch: ref, files: imported, skipped };
             if (!Object.keys(imported).length) throw new Error("Clone returned no files; repository was not imported.");
             for (const [filePath, content] of Object.entries(imported)) {
               const safePath = normalizePath(filePath);
@@ -700,23 +778,22 @@ export async function runAgentLoop(opts) {
           if (r.status >= 400) throw new Error(output);
         } else if (call.name === "skill_list") {
           const q = String(call.args.query || call.body || "").trim().toLowerCase();
-          const localSkills = q
-            ? DEVELOPMENT_SKILLS.filter((s) => `${s.name} ${s.category} ${s.description} ${s.content}`.toLowerCase().includes(q))
-            : DEVELOPMENT_SKILLS;
-          let remoteSkills = [];
-          try {
-            const resp = await base44.functions.invoke("skillList", { query: q });
-            const d = resp?.data;
-            if (d && !d.error) remoteSkills = Array.isArray(d.skills) ? d.skills : [];
-          } catch { /* local development skills remain available offline */ }
-          const merged = [...localSkills, ...remoteSkills.filter((remote) => !localSkills.some((local) => local.name === remote.name))];
-          if (q && merged.length) merged.forEach((skill) => loadedSkills.add(skill.name));
-          if (!q) {
-            output = `Skill catalog (${merged.length} skills). Call skill_list again with query="<term>" to load a skill's full instructions:\n` +
-              merged.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
+          const catalog = await loadPublicSkillCatalog();
+          const matches = q
+            ? catalog.filter((skill) => `${skill.name} ${skill.category} ${skill.description}`.toLowerCase().includes(q))
+            : catalog;
+          if (q) {
+            const loaded = [];
+            for (const skill of matches) {
+              const full = await loadPublicSkill(skill.name);
+              if (full) { loadedSkills.add(full.name); loaded.push(full); }
+            }
+            output = loaded.length
+              ? `Skills matching "${q}" (${loaded.length}):\n${loaded.map((s) => `=== ${s.name} (${s.category}) ===\n${s.description}\n${s.content}`).join("\n\n")}`
+              : `No public Vercel Plugin skill matched "${q}".`;
           } else {
-            output = `Skills matching "${q}" (${merged.length}):\n` +
-              merged.map((s) => `=== ${s.title || s.name} (${s.name}, ${s.category}) ===\n${s.description}\n${s.content || ""}`).join("\n\n") || "No matching skills.";
+            output = `Public Vercel Plugin skill catalog (${matches.length} skills). Call skill_list with query="<skill-name>" to load full instructions:\n` +
+              matches.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
           }
         } else if (call.name === "verify_preview") {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا…" });
