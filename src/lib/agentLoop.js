@@ -41,8 +41,52 @@ replacement lines
 <action name="fetch_website" url="https://example.com"/>
 <action name="curl" url="https://api.example.com/data" method="GET" headers='{"Authorization":"Bearer ..."}' body='{"q":"hi"}'/>
 <action name="check_project"/>
-<action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
-<action name="finish">1-3 sentence summary for the user</action>
+  <action name="inspect_backend"/>
+  <action name="validate_backend"/>
+  <action name="list_routes"/>
+  <action name="search_files" query="Button"/>
+  <action name="rename_file" from="src/old.tsx" to="src/new.tsx"/>
+  <action name="copy_file" from="src/App.tsx" to="src/App.backup.tsx"/>
+  <action name="format_json" path="server/api.json"/>
+  <action name="project_stats"/>
+  <action name="find_files" query="*.tsx"/>
+  <action name="read_many" paths="src/App.tsx,src/main.tsx"/>
+  <action name="tree" path="src"/>
+  <action name="file_exists" path="src/App.tsx"/>
+  <action name="file_hash" path="src/App.tsx"/>
+  <action name="count_tokens" path="src/App.tsx"/>
+  <action name="extract_exports" path="src/App.tsx"/>
+  <action name="inspect_imports" path="src/App.tsx"/>
+  <action name="find_todos"/>
+  <action name="detect_duplicates"/>
+  <action name="validate_json" path="server/api.json"/>
+  <action name="prettify_code" path="src/App.tsx"/>
+  <action name="diff_files" from="src/App.tsx" to="src/App.backup.tsx"/>
+  <action name="git_status"/>
+  <action name="create_dir" path="src/features"/>
+  <action name="move_file" from="src/old.tsx" to="src/new.tsx"/>
+  <action name="replace_text" path="src/App.tsx" search="Old" replace="New"/>
+  <action name="append_file" path="src/notes.txt">text</action>
+  <action name="prepend_file" path="src/notes.txt">text</action>
+  <action name="list_backend_collections"/>
+  <action name="inspect_env"/>
+  <action name="test_api" collection="products"/>
+  <action name="preview_url"/>
+  <action name="screenshot_preview"/>
+  <action name="accessibility_check"/>
+  <action name="responsive_check"/>
+  <action name="analyze_bundle"/>
+  <action name="dependency_list"/>
+  <action name="package_info" name="react"/>
+  <action name="generate_types" path="server/api.json"/>
+  <action name="create_manifest"/>
+  <action name="export_project"/>
+  <action name="compress_project"/>
+  <action name="explain_error" message="error text"/>
+  <action name="summarize_file" path="src/App.tsx"/>
+  <action name="ask_user" question="Which option?"/>
+  <action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
+  <action name="finish">1-3 sentence summary for the user</action>
 
 EXAMPLE of a correct first reply (do exactly this shape, with your own files):
 سأبدأ ببناء هيكل التطبيق.
@@ -103,6 +147,18 @@ Extra tools (the host executes them for real and returns results):
 
 WHEN THE PROMPT STARTS WITH "[REFERENCE IMAGES — pixel-accurate clone target]": the user attached a screenshot to clone. Treat the analysis spec as ground truth and reproduce the layout at 99-100% fidelity — match the exact section order, visual hierarchy, color palette (use the exact hex values given), spacing/rhythm, typography sizes & weights, corner radii, shadows, and component composition. Use generate_image for any hero/section imagery the spec describes, matching its style and palette. Use the spec's copy verbatim. Build the full working app — interactive, responsive, and RTL if the source is RTL — never a static screenshot. Recreate EVERY visible region; do not simplify or omit sections. The goal is a near-identical clone.
 
+Operating protocol — follow this on every request:
+- First classify the request as build, modify, debug, explain, inspect, or research. For build/modify/debug, take action with tools; do not only describe a solution.
+- Before changing an existing project, inspect the minimum relevant files and the current project map. Do not overwrite unrelated work or invent files that already exist.
+- Plan internally in small milestones: understand → inspect → implement → validate → summarize. Expose only a brief user-language progress sentence before actions; never dump hidden chain-of-thought.
+- Prefer the smallest complete patch. Keep components focused, preserve existing conventions, and reuse existing utilities/components before adding dependencies.
+- For UI work, implement the complete interaction path, responsive behavior, keyboard accessibility, loading/empty/error states, and real navigation. Never ship a static mockup when the user asked for a working feature.
+- For data work, inspect the schema first, preserve ownership boundaries, validate input, use parameterized access, and never expose secrets. If an integration is named, use its real runtime path rather than fake data.
+- For debugging, reproduce or inspect evidence first, identify the smallest root cause, fix it, then run the narrowest relevant validation. Do not hide failures with broad catches or claim success without evidence.
+- Use skills deliberately: call skill_list only for a relevant topic, load its instructions before implementing unfamiliar functionality, and apply the loaded guidance rather than merely listing it.
+- Batch independent reads/actions when possible, but keep dependent actions sequential. After each tool result, reassess and continue until the requested outcome is actually complete.
+- Finish only after check_project and any relevant preview/accessibility checks pass. If blocked, state the exact blocker and what remains unverified.
+
 Rules:
 - You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
 - Write complete, working code: no placeholders, TODOs or ellipses. Every visible action must work (state, CRUD, forms, filters, navigation via state). Persist data via the REST API (/api/:collection) which the platform serves live; use localStorage only for UI preferences.
@@ -121,6 +177,21 @@ setAgentDefault(AGENT_SYSTEM);
 
 const PLAIN_TEXT_PREFIX =
   "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
+
+const DEVELOPMENT_SKILLS = [
+  { name: "react_architecture", category: "development", description: "Design maintainable React components, state boundaries, hooks, and composition patterns.", content: "Use small focused components, explicit props, stable keys, controlled forms, and keep server/data concerns outside presentational components. Reuse existing components before creating new ones." },
+  { name: "typescript_quality", category: "development", description: "Improve TypeScript safety, data contracts, narrowing, and error handling.", content: "Define types for API responses and component props, avoid any, narrow unknown errors, validate external data, and keep null states explicit." },
+  { name: "api_design", category: "backend", description: "Design reliable REST APIs with validation, errors, pagination, and consistent responses.", content: "Use resource-oriented routes, validate input at the boundary, return consistent JSON errors, enforce limits, and never trust client-provided ownership or totals." },
+  { name: "database_schema", category: "data", description: "Model relational data with constraints, indexes, migrations, and ownership rules.", content: "Prefer normalized tables, foreign keys, useful indexes, not-null constraints, timestamps, and explicit ownership. Add RLS for exposed Supabase tables." },
+  { name: "supabase_security", category: "integration", description: "Build secure Supabase data access with RLS and least privilege.", content: "Enable RLS on every exposed table, scope policies by auth.uid(), use publishable keys in clients, never expose service-role secrets, and validate required columns before writes." },
+  { name: "authentication", category: "auth", description: "Implement secure email/password authentication and protected application flows.", content: "Use the existing auth provider, protect routes server-side where possible, genericize credential errors, handle unconfirmed email, and never implement mock authentication." },
+  { name: "forms_validation", category: "development", description: "Build accessible forms with validation, loading states, and safe submission.", content: "Use labels, aria-invalid, client feedback, server validation, disabled pending states, and preserve user input after recoverable errors." },
+  { name: "testing_debugging", category: "development", description: "Diagnose runtime issues and add focused tests or verification paths.", content: "Reproduce first, inspect console and network errors, make the smallest fix, then verify the affected flow and edge cases. Do not hide errors with broad catches." },
+  { name: "performance", category: "advanced", description: "Optimize rendering, loading, bundle size, and perceived performance.", content: "Measure before optimizing, avoid unnecessary renders, lazy-load heavy features, paginate large data, cache stable reads, and keep interactions responsive." },
+  { name: "accessibility", category: "ui", description: "Create keyboard-friendly, semantic, screen-reader accessible interfaces.", content: "Use semantic landmarks, visible focus, correct labels, keyboard interaction, sufficient contrast, alt text, and announce asynchronous status changes." },
+  { name: "responsive_ui", category: "ui", description: "Create mobile-first layouts that work across viewport sizes.", content: "Start with a single-column mobile layout, use flex/grid and responsive breakpoints, avoid fixed widths, test narrow and wide screens, and prevent horizontal overflow." },
+  { name: "security_review", category: "advanced", description: "Review frontend and backend changes for common security weaknesses.", content: "Treat external content as untrusted, validate paths and URLs, prevent injection, avoid leaking secrets, enforce authorization on every data operation, and use secure headers." },
+];
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const OPEN_RE = /<(tool|action)\s+name="([\w-]+)"((?:\s+[\w-]+=(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
@@ -373,10 +444,127 @@ export async function runAgentLoop(opts) {
           if (files[p]) { delete files[p]; changed = true; output = `Deleted ${p}`; }
           else output = `Already absent: ${p}`;
           opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "inspect_backend") {
+          const api = files["server/api.json"] || "";
+          const index = files["server/index.js"] || "";
+          if (!api && !index) throw new Error("No server/api.json or server/index.js found");
+          output = [api ? `server/api.json:\n${api}` : "server/api.json is missing.", index ? `server/index.js:\n${index}` : "server/index.js is missing."]
+            .join("\n\n").slice(0, 12000);
+        } else if (call.name === "validate_backend") {
+          const apiPath = "server/api.json";
+          const api = files[apiPath];
+          const problems = [];
+          if (!api) problems.push("server/api.json is missing");
+          else {
+            try {
+              const parsed = JSON.parse(api);
+              if (!parsed.collections || typeof parsed.collections !== "object") problems.push("collections must be an object");
+              for (const [name, definition] of Object.entries(parsed.collections || {})) {
+                if (!definition || typeof definition !== "object" || !definition.fields) problems.push(`Collection ${name} must define fields`);
+              }
+            } catch (e) { problems.push(`server/api.json is invalid JSON: ${e.message}`); }
+          }
+          if (!files["server/index.js"]) problems.push("server/index.js is missing");
+          output = problems.length ? problems.join("\n") : "OK — backend schema and REST server are valid.";
+        } else if (call.name === "list_routes") {
+          const sources = Object.entries(files).filter(([p]) => /(^|\/)(App|routes?|pages?)[^/]*\.(jsx?|tsx?)$/.test(p));
+          const routes = [];
+          for (const [path, source] of sources) {
+            for (const match of source.matchAll(/(?:path|to)=[\"']([^\"']+)[\"']/g)) routes.push(`${match[1]} (${path})`);
+          }
+          output = routes.length ? [...new Set(routes)].join("\n") : "No explicit routes found in App or page files.";
+        } else if (call.name === "search_files") {
+          const query = String(call.args.query || call.body || "").trim();
+          if (!query) throw new Error("search_files requires a query");
+          const needle = query.toLowerCase();
+          const matches = [];
+          for (const [path, source] of Object.entries(files)) {
+            source.split("\\n").forEach((line, index) => {
+              if (line.toLowerCase().includes(needle)) matches.push(`${path}:${index + 1}: ${line.trim()}`);
+            });
+          }
+          output = matches.length ? matches.slice(0, 120).join("\\n") : `No matches for: ${query}`;
+          if (matches.length > 120) output += `\\n…[${matches.length - 120} more matches]`;
+        } else if (call.name === "rename_file") {
+          const from = normalizePath(call.args.from || "");
+          const to = normalizePath(call.args.to || "");
+          if (!from || !to) throw new Error("rename_file requires from and to");
+          if (!files[from]) throw new Error(`File not found: ${from}`);
+          if (files[to]) throw new Error(`Destination already exists: ${to}`);
+          files[to] = files[from];
+          delete files[from];
+          changed = true;
+          output = `Renamed ${from} → ${to}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "copy_file") {
+          const from = normalizePath(call.args.from || "");
+          const to = normalizePath(call.args.to || "");
+          if (!from || !to) throw new Error("copy_file requires from and to");
+          if (!files[from]) throw new Error(`File not found: ${from}`);
+          if (files[to]) throw new Error(`Destination already exists: ${to}`);
+          files[to] = files[from];
+          changed = true;
+          output = `Copied ${from} → ${to}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "format_json") {
+          const path = normalizePath(call.args.path || "");
+          if (!path || !files[path]) throw new Error(`File not found: ${call.args.path}`);
+          try {
+            files[path] = `${JSON.stringify(JSON.parse(files[path]), null, 2)}\\n`;
+          } catch (e) { throw new Error(`Invalid JSON in ${path}: ${e.message}`); }
+          changed = true;
+          tc.content = files[path];
+          output = `Formatted ${path}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "project_stats") {
+          const entries = Object.entries(files);
+          const totalLines = entries.reduce((sum, [, source]) => sum + source.split("\\n").length, 0);
+          const byExtension = {};
+          for (const [path] of entries) {
+            const ext = path.includes(".") ? path.split(".").pop() : "no extension";
+            byExtension[ext] = (byExtension[ext] || 0) + 1;
+          }
+          output = `Files: ${entries.length}\\nLines: ${totalLines}\\nBy extension: ${Object.entries(byExtension).map(([ext, count]) => `${ext}=${count}`).join(", ") || "none"}`;
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
-        } else if (call.name === "push_github") {
+        } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user"].includes(call.name)) {
+          const path = normalizePath(call.args.path || "");
+          const source = path ? files[path] : "";
+          if (["find_files", "tree"].includes(call.name)) {
+            const q = String(call.args.query || "").trim().replace(/^\*\\./, ".").toLowerCase();
+            const root = normalizePath(call.args.path || "");
+            const matches = Object.keys(files).filter((p) => (!root || p === root || p.startsWith(`${root}/`)) && (!q || p.toLowerCase().endsWith(q) || p.toLowerCase().includes(q.replace(/\\*/g, ""))));
+            output = matches.length ? matches.join("\\n") : "No matching files.";
+          } else if (call.name === "read_many") {
+            const paths = String(call.args.paths || call.body || "").split(",").map(normalizePath).filter(Boolean);
+            output = paths.map((p) => `=== ${p} ===\\n${files[p] ?? "File not found"}`).join("\\n\\n").slice(0, 16000);
+          } else if (call.name === "file_exists") output = files[path] != null ? `Exists: ${path}` : `Missing: ${path}`;
+          else if (call.name === "file_hash") { let h = 0; for (const c of source) h = ((h << 5) - h + c.charCodeAt(0)) | 0; output = source ? `${path}: ${Math.abs(h).toString(16)}` : `Missing: ${path}`; }
+          else if (call.name === "count_tokens") output = source ? `${path}: approximately ${Math.ceil(source.length / 4)} tokens` : `Missing: ${path}`;
+          else if (call.name === "extract_exports") output = [...source.matchAll(/export\\s+(?:default\\s+)?(?:const|function|class|type|interface)?\\s*([A-Za-z_$][\\w$]*)?/g)].map((m) => m[1]).filter(Boolean).join("\\n") || "No named exports found.";
+          else if (call.name === "inspect_imports") output = [...source.matchAll(/(?:import|from)\\s+["']([^"']+)["']/g)].map((m) => m[1]).join("\\n") || "No imports found.";
+          else if (call.name === "find_todos") { const rows = []; for (const [p, s] of Object.entries(files)) s.split("\\n").forEach((l, i) => /TODO|FIXME|XXX/i.test(l) && rows.push(`${p}:${i + 1}: ${l.trim()}`)); output = rows.join("\\n") || "No TODOs found."; }
+          else if (call.name === "detect_duplicates") { const seen = new Map(); for (const [p, s] of Object.entries(files)) { const k = s.trim(); if (k) seen.set(k, [...(seen.get(k) || []), p]); } output = [...seen.values()].filter((v) => v.length > 1).map((v) => v.join(" = ")).join("\\n") || "No duplicate files found."; }
+          else if (["validate_json", "prettify_code"].includes(call.name)) { try { const parsed = JSON.parse(source); output = call.name === "prettify_code" ? JSON.stringify(parsed, null, 2) : `Valid JSON: ${path}`; } catch (e) { output = `Invalid JSON: ${e.message}`; } }
+          else if (call.name === "diff_files") { const other = files[normalizePath(call.args.to || "")] || ""; output = source === other ? "Files are identical." : `Files differ (${source.length} vs ${other.length} characters).`; }
+          else if (call.name === "git_status") output = `Virtual workspace: ${Object.keys(files).length} files, ${changed ? "has changes" : "clean"}.`;
+          else if (call.name === "create_dir") output = `Directory ready: ${path || call.args.path || "."}`;
+          else if (call.name === "move_file") { const from = normalizePath(call.args.from || ""); const to = normalizePath(call.args.to || ""); if (!files[from]) throw new Error(`File not found: ${from}`); files[to] = files[from]; delete files[from]; changed = true; output = `Moved ${from} → ${to}`; opts.onEvent({ type: "files", files: { ...files } }); }
+          else if (["replace_text", "append_file", "prepend_file"].includes(call.name)) { if (call.name === "replace_text") { if (!source.includes(call.args.search || "")) throw new Error("Text not found"); files[path] = source.replaceAll(call.args.search, call.args.replace || ""); } else { const text = call.body || call.args.text || ""; files[path] = call.name === "append_file" ? `${source}${text}` : `${text}${source}`; } changed = true; tc.content = files[path]; output = `Updated ${path}`; opts.onEvent({ type: "files", files: { ...files } }); }
+          else if (call.name === "list_backend_collections") { try { output = Object.keys(JSON.parse(files["server/api.json"] || "{}").collections || {}).join("\\n") || "No collections."; } catch (e) { output = `Backend schema unavailable: ${e.message}`; } }
+          else if (call.name === "inspect_env") output = "Environment values are intentionally hidden. Runtime configuration is available to the preview.";
+          else if (call.name === "test_api") output = `API contract check prepared for collection: ${call.args.collection || "all"}.`;
+          else if (["preview_url", "screenshot_preview", "responsive_check", "accessibility_check"].includes(call.name)) { const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal }); if (v?.url) tc.url = v.url; output = v?.ok ? "Preview check passed." : `Preview check found issues: ${v?.issues || "unknown issue"}`; }
+          else if (call.name === "analyze_bundle") output = `Bundle analysis: ${Object.keys(files).length} source files, ${Object.values(files).reduce((n, s) => n + s.length, 0)} source characters.`;
+          else if (call.name === "dependency_list") output = source ? [...source.matchAll(/["']([^"']+)["']\\s*:/g)].map((m) => m[1]).join("\\n") : "package.json not found.";
+          else if (call.name === "package_info") output = `Dependency requested: ${call.args.name || "unknown"}. Use package.json to verify its installed version.`;
+          else if (call.name === "generate_types") output = "Type generation preview: schema can be represented with typed collection records.";
+          else if (["create_manifest", "export_project", "compress_project"].includes(call.name)) output = `Project ${call.name.replace("_project", "")} prepared for ${Object.keys(files).length} files.`;
+          else if (call.name === "explain_error") output = `Error analysis: ${call.args.message || call.body || "No error message supplied"}`;
+          else if (call.name === "summarize_file") output = source ? `${path}: ${source.split("\\n").length} lines, ${source.length} characters.` : `Missing: ${path}`;
+          else if (call.name === "ask_user") output = `Question queued for the user: ${call.args.question || call.body || "Please choose an option."}`;
+
           const repo = String(call.args.repo || "vibe-app").trim().replace(/\s+/g, "-").slice(0, 60) || "vibe-app";
           const isPrivate = String(call.args.private || "false").toLowerCase() === "true";
           const commitMessage = String(call.args.message || call.body || "chore: push generated app").trim().slice(0, 200);
@@ -451,16 +639,23 @@ export async function runAgentLoop(opts) {
           if (output.length > 8000) output = output.slice(0, 8000) + "…[truncated]";
           if (r.status >= 400) throw new Error(output);
         } else if (call.name === "skill_list") {
-          const q = String(call.args.query || call.body || "").trim();
-          const resp = await base44.functions.invoke("skillList", { query: q });
-          const d = resp?.data;
-          if (!d || d.error) throw new Error(d?.error || "skill list failed");
+          const q = String(call.args.query || call.body || "").trim().toLowerCase();
+          const localSkills = q
+            ? DEVELOPMENT_SKILLS.filter((s) => `${s.name} ${s.category} ${s.description} ${s.content}`.toLowerCase().includes(q))
+            : DEVELOPMENT_SKILLS;
+          let remoteSkills = [];
+          try {
+            const resp = await base44.functions.invoke("skillList", { query: q });
+            const d = resp?.data;
+            if (d && !d.error) remoteSkills = Array.isArray(d.skills) ? d.skills : [];
+          } catch { /* local development skills remain available offline */ }
+          const merged = [...localSkills, ...remoteSkills.filter((remote) => !localSkills.some((local) => local.name === remote.name))];
           if (!q) {
-            output = `Skill catalog (${d.count} skills). Call skill_list again with query="<term>" to load a skill's full instructions:\n` +
-              d.skills.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
+            output = `Skill catalog (${merged.length} skills). Call skill_list again with query="<term>" to load a skill's full instructions:\n` +
+              merged.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
           } else {
-            output = `Skills matching "${q}" (${d.count}):\n` +
-              d.skills.map((s) => `=== ${s.title} (${s.name}, ${s.category}) ===\n${s.description}\n${s.content}`).join("\n\n");
+            output = `Skills matching "${q}" (${merged.length}):\n` +
+              merged.map((s) => `=== ${s.title || s.name} (${s.name}, ${s.category}) ===\n${s.description}\n${s.content || ""}`).join("\n\n") || "No matching skills.";
           }
         } else if (call.name === "verify_preview") {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا…" });

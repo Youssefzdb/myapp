@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   FilePlus, FilePen, Trash2, FolderTree, FileSearch, CheckCircle2, Flag,
   Loader2, Check, X, ChevronLeft, Copy, CheckCheck, Code2, AlertTriangle,
-  Image as ImageIcon, Search, Globe, Terminal,
+  Image as ImageIcon, Search, Globe, Terminal, Database, ShieldCheck, Route, Eye,
 } from 'lucide-react';
 import { Image as UiImage } from '@/components/ui/image';
 
@@ -13,11 +13,21 @@ const ICONS = {
   list_files: FolderTree,
   read_file: FileSearch,
   check_project: CheckCircle2,
+  inspect_backend: Database,
+  validate_backend: ShieldCheck,
+  list_routes: Route,
+  search_files: Search,
+  rename_file: FilePen,
+  copy_file: Copy,
+  format_json: Code2,
+  project_stats: Database,
   finish: Flag,
   generate_image: ImageIcon,
   search_web: Search,
   fetch_website: Globe,
   curl: Terminal,
+  skill_list: Code2,
+  verify_preview: Eye,
 };
 
 const LABELS = {
@@ -27,11 +37,24 @@ const LABELS = {
   list_files: 'سرد الملفات',
   read_file: 'قراءة ملف',
   check_project: 'فحص المشروع',
+  inspect_backend: 'فحص قاعدة البيانات',
+  validate_backend: 'تحقق من الـ API',
+  list_routes: 'سرد المسارات',
+  search_files: 'البحث في الملفات',
+  rename_file: 'إعادة تسمية ملف',
+  copy_file: 'نسخ ملف',
+  format_json: 'تنسيق JSON',
+  project_stats: 'إحصائيات المشروع',
   finish: 'إنهاء',
   generate_image: 'توليد صورة',
   search_web: 'بحث ويب',
   fetch_website: 'جلب صفحة',
   curl: 'طلب HTTP (curl)',
+  find_files: 'العثور على الملفات', read_many: 'قراءة ملفات متعددة', tree: 'شجرة الملفات', file_exists: 'التحقق من الملف', file_hash: 'بصمة الملف', count_tokens: 'عدّ الرموز',
+  extract_exports: 'استخراج التصديرات', inspect_imports: 'فحص الاستيرادات', find_todos: 'العثور على المهام', detect_duplicates: 'كشف التكرار', validate_json: 'تحقق JSON', prettify_code: 'تنسيق الكود', diff_files: 'مقارنة الملفات', git_status: 'حالة مساحة العمل',
+  create_dir: 'إنشاء مجلد', move_file: 'نقل ملف', replace_text: 'استبدال نص', append_file: 'إضافة إلى ملف', prepend_file: 'إضافة في بداية الملف', list_backend_collections: 'قوائم الـ Backend', inspect_env: 'فحص الإعدادات', test_api: 'اختبار API',
+  preview_url: 'رابط المعاينة', screenshot_preview: 'لقطة المعاينة', accessibility_check: 'فحص الوصول', responsive_check: 'فحص التجاوب', analyze_bundle: 'تحليل الحزمة', dependency_list: 'قائمة التبعيات', package_info: 'معلومات الحزمة',
+  generate_types: 'توليد الأنواع', create_manifest: 'إنشاء Manifest', export_project: 'تصدير المشروع', compress_project: 'ضغط المشروع', explain_error: 'شرح الخطأ', summarize_file: 'تلخيص الملف', ask_user: 'سؤال المستخدم',
 };
 
 const langOf = (path = '') => {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { MessageSquare, Eye, Loader2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
@@ -16,6 +16,7 @@ import { startBackendBridge, parseBackendSpec } from '@/lib/backendBridge';
 import { useAuth } from '@/lib/AuthContext';
 import { getSession, addProject, updateProject } from '@/lib/customAuth';
 import { saveLocalProject, updateLocalProject } from '@/lib/localProjects';
+import { createBuilderSession, saveBuilderMessage, updateBuilderMessage, saveBuilderTools, saveBuilderVersion } from '@/lib/builderDb';
 
 // Scope playground state per account so one user never sees another's draft.
 const lsKey = () => {
@@ -120,6 +121,7 @@ export default function Playground() {
   const [liveFiles, setLiveFiles] = useState(null);
   // session persistence
   const [sessionId, setSessionId] = useState(null);
+  const [builderProjectId, setBuilderProjectId] = useState(null);
   const [loadingSession, setLoadingSession] = useState(false);
   const sessionRef = useRef(newSession());
   const abortRef = useRef(null);
@@ -341,28 +343,27 @@ export default function Playground() {
       setMessages((ms) => ms.map((m) => (m.id === aid ? { ...m, live: 'يفكّر…' } : m)));
     }
 
-    const persist = isAuthenticated;
+    const persist = true;
     try {
-      // Persist user message (only when logged in; otherwise local storage keeps state)
+      // Persist every builder run in Supabase, including anonymous preview sessions.
       let sid = sessionId;
+      let projectId = null;
+      let userDbId = null;
       let asstDbId = null;
-      if (persist) {
-        if (!sid) {
-          const s = await base44.entities.Session.create({ title: prompt.slice(0, 40), model });
-          sid = s.id;
+      if (!sid) {
+        const session = await createBuilderSession({ sessionKey: sessionRef.current, title: prompt.slice(0, 40), model });
+        if (session) {
+          sid = session.id;
+          projectId = session.project_id;
+          setBuilderProjectId(projectId);
           setSessionId(sid);
         }
-        await base44.entities.Message.create({ session_id: sid, role: 'user', content: prompt });
-        const asstRecord = await base44.entities.Message.create({
-          session_id: sid,
-          role: 'assistant',
-          content: '',
-          reasoning: '',
-          code: '',
-          version: null,
-          status: 'running',
-        });
-        asstDbId = asstRecord.id;
+      }
+      if (sid) {
+        const sequence = messages.filter((m) => m.role === 'user').length + 1;
+        await saveBuilderMessage({ sessionId: sid, role: 'user', content: prompt, sequence });
+        const asstRecord = await saveBuilderMessage({ sessionId: sid, role: 'assistant', content: '', reasoning: '', status: 'streaming', sequence: sequence + 1 });
+        asstDbId = asstRecord?.id || null;
       }
       let lastVersion = null;
       const toolsAccum = [];
@@ -429,9 +430,7 @@ export default function Playground() {
                     .then((uri) => {
                       if (!uri) return null;
                       projectRef.current.codeUri = uri;
-                      return base44.entities.Message
-                        .update(asstDbId, { code_uri: uri, version: n, status: 'streaming' })
-                        .catch(() => {});
+                      return updateBuilderMessage(asstDbId, { status: 'streaming' }).catch(() => {});
                     })
                     .catch(() => {});
                 }
@@ -479,28 +478,17 @@ export default function Playground() {
         } catch { /* storage unavailable */ }
       }
 
-      // Final update for the assistant message record.
-      if (persist && asstDbId) {
-        // Truncate large tool-call fields so the record stays within the
-        // entity field size limit (full code lives in code_uri instead).
-        const MAX = 1500;
-        const safeToolCalls = toolsAccum.map((t) => ({
-          ...t,
-          content: (t.content || '').slice(0, MAX),
-          output: (t.output || '').slice(0, MAX),
-          args: t.args && typeof t.args === 'object'
-            ? Object.fromEntries(Object.entries(t.args).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, MAX) : v]))
-            : t.args,
-        }));
-        try {
-          await base44.entities.Message.update(asstDbId, {
-            content: (result.summary || 'تم بناء التطبيق').slice(0, 4000),
-            code_uri: saveUri ?? undefined,
-            version: versionBump ?? lastVersion,
-            tool_calls: safeToolCalls,
-            status: 'done',
-          });
-        } catch { /* field-size guard; the session still works locally */ }
+      // Finalize the assistant message and persist its reasoning/tool trace.
+      if (asstDbId) {
+        await updateBuilderMessage(asstDbId, {
+          content: (result.summary || 'تم بناء التطبيق').slice(0, 4000),
+          reasoning: messages.find((m) => m.id === aid)?.reasoning || null,
+          status: 'complete',
+        });
+        await saveBuilderTools(asstDbId, toolsAccum);
+      }
+      if ((projectId || builderProjectId) && versionBump) {
+        await saveBuilderVersion({ projectId: projectId || builderProjectId, sessionId: sid, versionNumber: versionBump, prompt, files: result.files, activeFile });
       }
 
       // Save the project so it appears on Home. One entry per conversation:
