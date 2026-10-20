@@ -26,6 +26,8 @@ const ICONS = {
   search_web: Search,
   fetch_website: Globe,
   curl: Terminal,
+  skill_list: Code2,
+  verify_preview: Eye,
 };
 
 const LABELS = {
