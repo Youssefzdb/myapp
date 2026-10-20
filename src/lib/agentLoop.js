@@ -45,6 +45,7 @@ replacement lines
 </action>
 <action name="delete_file" path="src/old.tsx"/>
   <action name="generate_image" prompt="a minimalist SaaS hero illustration, soft gradients, 16:9">optional-name</action>
+  <!-- For multiple images, emit one generate_image action per image in the same reply so the host can schedule them independently. -->
   <action name="generate_images" prompts='["hero illustration", "product detail illustration", "avatar portrait"]'/>
   <action name="free_chat" message="Suggest 3 catchy Arabic names for a delivery app"/>
 <action name="search_web" query="current top 5 project management tools and their pricing"/>
@@ -480,9 +481,13 @@ export async function runAgentLoop(opts) {
             throw new Error("Load the relevant skill first with <action name=\"skill_list\" query=\"supabase\"/> before writing backend files.");
           }
           if (!p) throw new Error(`Invalid path: ${call.args.path}`);
-          files[p] = call.body + "\n";
+          // Preserve the model's exact payload. Adding a newline here used to corrupt
+          // binary-like HTML payloads and made index.html writes appear unreliable.
+          const content = typeof call.body === "string" ? call.body : "";
+          if (!content.trim() && !/\.empty$/i.test(p)) throw new Error(`Empty file content for ${p}`);
+          files[p] = content;
           changed = true;
-          tc.content = call.body;
+          tc.content = content;
           output = `Wrote ${p} (${files[p].split("\n").length} lines)`;
           opts.onEvent({ type: "files", files: { ...files } });
         } else if (call.name === "edit_file") {
