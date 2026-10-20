@@ -570,7 +570,7 @@ export async function runAgentLoop(opts) {
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
-        } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user"].includes(call.name)) {
+        } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user", "git_clone", "push_github"].includes(call.name)) {
           const path = normalizePath(call.args.path || "");
           const source = path ? files[path] : "";
           if (["find_files", "tree"].includes(call.name)) {
