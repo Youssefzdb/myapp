@@ -628,28 +628,47 @@ export async function runAgentLoop(opts) {
             const treeData = await treeResponse.json();
             if (treeData.truncated) throw new Error("Repository is too large to clone in one operation.");
             const blobs = (treeData.tree || []).filter((entry) => entry.type === "blob");
-            const imported = {};
-            for (const entry of blobs) {
-              // The Contents/Git Blob API is aggressively rate-limited and may return
-              // 403 during a larger import. Prefer the raw file CDN, then fall back to
-              // the blob API for hosts where raw access is unavailable.
-              const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${entry.path.split("/").map(encodeURIComponent).join("/")}`;
-              let fileResponse = await fetch(rawUrl, { signal: opts.signal });
-              let bytes;
-              if (fileResponse.ok) {
-                bytes = new Uint8Array(await fileResponse.arrayBuffer());
-              } else {
-                const blobResponse = await fetch(`${apiBase}/git/blobs/${entry.sha}`, { headers, signal: opts.signal });
-                if (!blobResponse.ok) throw new Error(`Unable to read ${entry.path} (raw GitHub HTTP ${fileResponse.status}; API HTTP ${blobResponse.status}).`);
-                const blob = await blobResponse.json();
-                if (blob.encoding !== "base64") continue;
-                const binary = atob(blob.content.replace(/\s/g, ""));
-                bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-              }
-              const isText = !bytes.slice(0, 4096).some((byte) => byte === 0);
-              if (isText) imported[entry.path] = new TextDecoder().decode(bytes);
-            }
-            const d = { repository: `${owner}/${repo}`, branch: ref, files: imported };
+  const imported = {};
+  const skipped = [];
+  for (const entry of blobs) {
+  // Prefer the raw CDN. GitHub's unauthenticated Git Blob API is rate-limited
+  // and commonly returns 403 during imports, so a single blocked file must not
+  // abort an otherwise valid repository import.
+  const encodedPath = entry.path.split("/").map(encodeURIComponent).join("/");
+  const rawUrls = [
+    `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${encodedPath}`,
+    `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${encodeURIComponent(ref)}/${encodedPath}`,
+  ];
+  let fileResponse = null;
+  for (const rawUrl of rawUrls) {
+    try {
+      const response = await fetch(rawUrl, { signal: opts.signal });
+      if (response.ok) { fileResponse = response; break; }
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+    }
+  }
+  let bytes;
+  if (fileResponse?.ok) {
+    bytes = new Uint8Array(await fileResponse.arrayBuffer());
+  } else {
+    try {
+      const blobResponse = await fetch(`${apiBase}/git/blobs/${entry.sha}`, { headers, signal: opts.signal });
+      if (!blobResponse.ok) { skipped.push(`${entry.path} (GitHub HTTP ${blobResponse.status})`); continue; }
+      const blob = await blobResponse.json();
+      if (blob.encoding !== "base64") { skipped.push(`${entry.path} (unsupported encoding)`); continue; }
+      const binary = atob(blob.content.replace(/\s/g, ""));
+      bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+      skipped.push(`${entry.path} (unavailable)`);
+      continue;
+    }
+  }
+  const isBinary = /\.(png|jpe?g|gif|webp|ico|svg|woff2?|ttf|otf|mp3|mp4|pdf|zip)$/i.test(entry.path);
+  imported[normalizePath(entry.path)] = isBinary ? `data:application/octet-stream;base64,${btoa(String.fromCharCode(...bytes))}` : new TextDecoder().decode(bytes);
+  }
+            const d = { repository: `${owner}/${repo}`, branch: ref, files: imported, skipped };
             if (!Object.keys(imported).length) throw new Error("Clone returned no files; repository was not imported.");
             for (const [filePath, content] of Object.entries(imported)) {
               const safePath = normalizePath(filePath);
