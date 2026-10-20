@@ -44,6 +44,11 @@ replacement lines
   <action name="inspect_backend"/>
   <action name="validate_backend"/>
   <action name="list_routes"/>
+  <action name="search_files" query="Button"/>
+  <action name="rename_file" from="src/old.tsx" to="src/new.tsx"/>
+  <action name="copy_file" from="src/App.tsx" to="src/App.backup.tsx"/>
+  <action name="format_json" path="server/api.json"/>
+  <action name="project_stats"/>
   <action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
 <action name="finish">1-3 sentence summary for the user</action>
 
@@ -405,6 +410,58 @@ export async function runAgentLoop(opts) {
             for (const match of source.matchAll(/(?:path|to)=[\"']([^\"']+)[\"']/g)) routes.push(`${match[1]} (${path})`);
           }
           output = routes.length ? [...new Set(routes)].join("\n") : "No explicit routes found in App or page files.";
+        } else if (call.name === "search_files") {
+          const query = String(call.args.query || call.body || "").trim();
+          if (!query) throw new Error("search_files requires a query");
+          const needle = query.toLowerCase();
+          const matches = [];
+          for (const [path, source] of Object.entries(files)) {
+            source.split("\\n").forEach((line, index) => {
+              if (line.toLowerCase().includes(needle)) matches.push(`${path}:${index + 1}: ${line.trim()}`);
+            });
+          }
+          output = matches.length ? matches.slice(0, 120).join("\\n") : `No matches for: ${query}`;
+          if (matches.length > 120) output += `\\n…[${matches.length - 120} more matches]`;
+        } else if (call.name === "rename_file") {
+          const from = normalizePath(call.args.from || "");
+          const to = normalizePath(call.args.to || "");
+          if (!from || !to) throw new Error("rename_file requires from and to");
+          if (!files[from]) throw new Error(`File not found: ${from}`);
+          if (files[to]) throw new Error(`Destination already exists: ${to}`);
+          files[to] = files[from];
+          delete files[from];
+          changed = true;
+          output = `Renamed ${from} → ${to}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "copy_file") {
+          const from = normalizePath(call.args.from || "");
+          const to = normalizePath(call.args.to || "");
+          if (!from || !to) throw new Error("copy_file requires from and to");
+          if (!files[from]) throw new Error(`File not found: ${from}`);
+          if (files[to]) throw new Error(`Destination already exists: ${to}`);
+          files[to] = files[from];
+          changed = true;
+          output = `Copied ${from} → ${to}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "format_json") {
+          const path = normalizePath(call.args.path || "");
+          if (!path || !files[path]) throw new Error(`File not found: ${call.args.path}`);
+          try {
+            files[path] = `${JSON.stringify(JSON.parse(files[path]), null, 2)}\\n`;
+          } catch (e) { throw new Error(`Invalid JSON in ${path}: ${e.message}`); }
+          changed = true;
+          tc.content = files[path];
+          output = `Formatted ${path}`;
+          opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "project_stats") {
+          const entries = Object.entries(files);
+          const totalLines = entries.reduce((sum, [, source]) => sum + source.split("\\n").length, 0);
+          const byExtension = {};
+          for (const [path] of entries) {
+            const ext = path.includes(".") ? path.split(".").pop() : "no extension";
+            byExtension[ext] = (byExtension[ext] || 0) + 1;
+          }
+          output = `Files: ${entries.length}\\nLines: ${totalLines}\\nBy extension: ${Object.entries(byExtension).map(([ext, count]) => `${ext}=${count}`).join(", ") || "none"}`;
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
