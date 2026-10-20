@@ -12,6 +12,15 @@ import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
 import { summarizeProjectMap } from "./projectMap";
 import { getPrompt, setAgentDefault } from "./systemPrompts";
 import { supercoolGenerateImage, supercoolChat } from "./supercoolTools";
+import deployToVercelSkill from "../../public/skills/deploy-to-vercel.md?raw";
+import vercelCliSkill from "../../public/skills/vercel-cli-with-tokens.md?raw";
+import vercelCompositionSkill from "../../public/skills/vercel-composition-patterns.md?raw";
+import vercelOptimizeSkill from "../../public/skills/vercel-optimize.md?raw";
+import vercelReactBestPracticesSkill from "../../public/skills/vercel-react-best-practices.md?raw";
+import vercelReactNativeSkill from "../../public/skills/vercel-react-native-skills.md?raw";
+import vercelViewTransitionsSkill from "../../public/skills/vercel-react-view-transitions.md?raw";
+import webDesignGuidelinesSkill from "../../public/skills/web-design-guidelines.md?raw";
+import writingGuidelinesSkill from "../../public/skills/writing-guidelines.md?raw";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. Follow the Vercel sandbox operating model: inspect first, use the platform action protocol for every mutation, load only relevant local Vercel Plugin skills before implementation, apply their returned instructions, validate the result, and report only actions that actually completed. Your job: build a COMPLETE, production-quality REACT WEBSITE — a real, navigable, responsive web app in React + TypeScript + Tailwind (FRONTEND in src/) backed by a declarative REST BACKEND in server/. Think "website" first: multiple pages/routes, a coherent layout with navbar + footer, real content sections, working navigation, forms and interactivity — not a single placeholder screen. Frontend files (8-25 focused): src/App.tsx (sets up routes via react-router or simple state-based pages), src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -200,6 +209,18 @@ const LOCAL_SKILL_NAMES = [
 ];
 let localSkillCatalogPromise;
 
+const LOCAL_SKILL_CONTENT = {
+  "deploy-to-vercel": deployToVercelSkill,
+  "vercel-cli-with-tokens": vercelCliSkill,
+  "vercel-composition-patterns": vercelCompositionSkill,
+  "vercel-optimize": vercelOptimizeSkill,
+  "vercel-react-best-practices": vercelReactBestPracticesSkill,
+  "vercel-react-native-skills": vercelReactNativeSkill,
+  "vercel-react-view-transitions": vercelViewTransitionsSkill,
+  "web-design-guidelines": webDesignGuidelinesSkill,
+  "writing-guidelines": writingGuidelinesSkill,
+};
+
 async function loadLocalSkillCatalog() {
   if (!localSkillCatalogPromise) {
     localSkillCatalogPromise = Promise.resolve(LOCAL_SKILL_NAMES.map((name) => ({
@@ -215,9 +236,11 @@ async function loadLocalSkill(name) {
   const catalog = await loadLocalSkillCatalog();
   const skill = catalog.find((entry) => entry.name === name);
   if (!skill) return null;
-  const response = await fetch(`/skills/${encodeURIComponent(skill.name)}.md`);
-  if (!response.ok) throw new Error(`Unable to load local skill ${skill.name} (HTTP ${response.status})`);
-  return { ...skill, content: await response.text() };
+  const content = LOCAL_SKILL_CONTENT[skill.name];
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error(`Unable to load local skill ${skill.name}: bundled content is missing`);
+  }
+  return { ...skill, content };
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
