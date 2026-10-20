@@ -529,8 +529,8 @@ export async function runAgentLoop(opts) {
           output = files[p];
         } else if (call.name === "write_file") {
           const p = normalizePath(call.args.path || "");
-          if (/^(supabase\/|.*supabase.*|server\/)/i.test(p) && ![...loadedSkills].some((skill) => /supabase|database|backend|security/i.test(skill))) {
-            throw new Error("Load the relevant skill first with <action name=\"skill_list\" query=\"supabase\"/> before writing backend files.");
+          if (/^(supabase\/|.*supabase.*)/i.test(p) && ![...loadedSkills].some((skill) => /supabase|database|backend|security/i.test(skill))) {
+            throw new Error("Load the relevant skill first with <action name=\"skill_list\" query=\"supabase\"/> before writing Supabase files.");
           }
           if (!p) throw new Error(`Invalid path: ${call.args.path}`);
           // Preserve the model's exact payload. Adding a newline here used to corrupt
@@ -544,8 +544,8 @@ export async function runAgentLoop(opts) {
           opts.onEvent({ type: "files", files: { ...files } });
         } else if (call.name === "edit_file") {
           const p = normalizePath(call.args.path || "");
-          if (/^(supabase\/|.*supabase.*|server\/)/i.test(p) && ![...loadedSkills].some((skill) => /supabase|database|backend|security/i.test(skill))) {
-            throw new Error("Load the relevant skill first with <action name=\"skill_list\" query=\"supabase\"/> before editing backend files.");
+          if (/^(supabase\/|.*supabase.*)/i.test(p) && ![...loadedSkills].some((skill) => /supabase|database|backend|security/i.test(skill))) {
+            throw new Error("Load the relevant skill first with <action name=\"skill_list\" query=\"supabase\"/> before editing Supabase files.");
           }
           if (!p) throw new Error(`Invalid path: ${call.args.path}`);
           if (!files[p]) throw new Error(`File not found: ${call.args.path}`);
