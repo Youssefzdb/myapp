@@ -447,7 +447,7 @@ export async function runAgentLoop(opts) {
     };
     let res;
     try {
-      res = await streamChat({
+      const streamRequest = streamChat({
         prompt: `${PLAIN_TEXT_PREFIX}\n\n${last.content}`,
         history: convo.slice(0, -1),
         model: stepModel,
@@ -480,7 +480,15 @@ export async function runAgentLoop(opts) {
           });
         },
       });
+      res = await Promise.race([
+        streamRequest,
+        new Promise((_, reject) => {
+          const timer = setTimeout(() => reject(new Error("Model response timed out while thinking.")), 90000);
+          streamRequest.finally(() => clearTimeout(timer)).catch(() => {});
+        }),
+      ]);
     } catch (e) {
+      clearStatus();
       if (opts.signal?.aborted) throw e;
       const transient = /502|500|503|504|مشغول|تعذّر|انقطع|timeout|network|fetch/i.test(String(e?.message || e));
       if (transient && changed) {
