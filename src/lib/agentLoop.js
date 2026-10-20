@@ -56,8 +56,7 @@ replacement lines
 </action>
 <action name="delete_file" path="src/old.tsx"/>
   <action name="generate_image" prompt="a minimalist SaaS hero illustration, soft gradients, 16:9">optional-name</action>
-  <!-- For multiple images, emit one generate_image action per image in the same reply so the host can schedule them independently. -->
-  <action name="generate_images" prompts='["hero illustration", "product detail illustration", "avatar portrait"]'/>
+  <!-- For multiple images, emit one separate generate_image action per image in the same reply. Never batch multiple prompts into one action; the host schedules these independent calls in parallel. -->
   <action name="free_chat" message="Suggest 3 catchy Arabic names for a delivery app"/>
 <action name="search_web" query="current top 5 project management tools and their pricing"/>
 <action name="fetch_website" url="https://example.com"/>
@@ -297,6 +296,26 @@ export function parseToolCalls(content) {
     calls.push({ name: m[2], args, body: body.replace(/^\n/, "").replace(/\s+$/, ""), unclosed });
     cursor = end;
   }
+  // Expand a batch image request into independent generate_image calls.
+  // The executor can then schedule each image request in parallel while
+  // preserving one tool event/result per generated image.
+  const expandedCalls = [];
+  for (const call of calls) {
+    if (call.name !== "generate_images") {
+      expandedCalls.push(call);
+      continue;
+    }
+    let prompts = call.args.prompts;
+    if (typeof prompts === "string") {
+      try { prompts = JSON.parse(prompts); } catch { prompts = [prompts]; }
+    }
+    if (!Array.isArray(prompts)) prompts = [prompts || call.body].filter(Boolean);
+    for (const prompt of prompts) {
+      expandedCalls.push({ name: "generate_image", args: { prompt: String(prompt) }, body: "" });
+    }
+  }
+  calls.length = 0;
+  calls.push(...expandedCalls);
   thought = (thought + content.slice(cursor)).trim();
   if (!calls.length) {
     const fenced = extractFiles(content);
