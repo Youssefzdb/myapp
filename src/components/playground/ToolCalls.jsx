@@ -48,6 +48,11 @@ const LABELS = {
   search_web: 'بحث ويب',
   fetch_website: 'جلب صفحة',
   curl: 'طلب HTTP (curl)',
+  find_files: 'العثور على الملفات', read_many: 'قراءة ملفات متعددة', tree: 'شجرة الملفات', file_exists: 'التحقق من الملف', file_hash: 'بصمة الملف', count_tokens: 'عدّ الرموز',
+  extract_exports: 'استخراج التصديرات', inspect_imports: 'فحص الاستيرادات', find_todos: 'العثور على المهام', detect_duplicates: 'كشف التكرار', validate_json: 'تحقق JSON', prettify_code: 'تنسيق الكود', diff_files: 'مقارنة الملفات', git_status: 'حالة مساحة العمل',
+  create_dir: 'إنشاء مجلد', move_file: 'نقل ملف', replace_text: 'استبدال نص', append_file: 'إضافة إلى ملف', prepend_file: 'إضافة في بداية الملف', list_backend_collections: 'قوائم الـ Backend', inspect_env: 'فحص الإعدادات', test_api: 'اختبار API',
+  preview_url: 'رابط المعاينة', screenshot_preview: 'لقطة المعاينة', accessibility_check: 'فحص الوصول', responsive_check: 'فحص التجاوب', analyze_bundle: 'تحليل الحزمة', dependency_list: 'قائمة التبعيات', package_info: 'معلومات الحزمة',
+  generate_types: 'توليد الأنواع', create_manifest: 'إنشاء Manifest', export_project: 'تصدير المشروع', compress_project: 'ضغط المشروع', explain_error: 'شرح الخطأ', summarize_file: 'تلخيص الملف', ask_user: 'سؤال المستخدم',
 };
 
 const langOf = (path = '') => {

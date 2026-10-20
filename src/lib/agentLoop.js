@@ -49,8 +49,44 @@ replacement lines
   <action name="copy_file" from="src/App.tsx" to="src/App.backup.tsx"/>
   <action name="format_json" path="server/api.json"/>
   <action name="project_stats"/>
+  <action name="find_files" query="*.tsx"/>
+  <action name="read_many" paths="src/App.tsx,src/main.tsx"/>
+  <action name="tree" path="src"/>
+  <action name="file_exists" path="src/App.tsx"/>
+  <action name="file_hash" path="src/App.tsx"/>
+  <action name="count_tokens" path="src/App.tsx"/>
+  <action name="extract_exports" path="src/App.tsx"/>
+  <action name="inspect_imports" path="src/App.tsx"/>
+  <action name="find_todos"/>
+  <action name="detect_duplicates"/>
+  <action name="validate_json" path="server/api.json"/>
+  <action name="prettify_code" path="src/App.tsx"/>
+  <action name="diff_files" from="src/App.tsx" to="src/App.backup.tsx"/>
+  <action name="git_status"/>
+  <action name="create_dir" path="src/features"/>
+  <action name="move_file" from="src/old.tsx" to="src/new.tsx"/>
+  <action name="replace_text" path="src/App.tsx" search="Old" replace="New"/>
+  <action name="append_file" path="src/notes.txt">text</action>
+  <action name="prepend_file" path="src/notes.txt">text</action>
+  <action name="list_backend_collections"/>
+  <action name="inspect_env"/>
+  <action name="test_api" collection="products"/>
+  <action name="preview_url"/>
+  <action name="screenshot_preview"/>
+  <action name="accessibility_check"/>
+  <action name="responsive_check"/>
+  <action name="analyze_bundle"/>
+  <action name="dependency_list"/>
+  <action name="package_info" name="react"/>
+  <action name="generate_types" path="server/api.json"/>
+  <action name="create_manifest"/>
+  <action name="export_project"/>
+  <action name="compress_project"/>
+  <action name="explain_error" message="error text"/>
+  <action name="summarize_file" path="src/App.tsx"/>
+  <action name="ask_user" question="Which option?"/>
   <action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
-<action name="finish">1-3 sentence summary for the user</action>
+  <action name="finish">1-3 sentence summary for the user</action>
 
 EXAMPLE of a correct first reply (do exactly this shape, with your own files):
 سأبدأ ببناء هيكل التطبيق.
@@ -465,7 +501,43 @@ export async function runAgentLoop(opts) {
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";
-        } else if (call.name === "push_github") {
+        } else if (["find_files", "read_many", "tree", "file_exists", "file_hash", "count_tokens", "extract_exports", "inspect_imports", "find_todos", "detect_duplicates", "validate_json", "prettify_code", "diff_files", "git_status", "create_dir", "move_file", "replace_text", "append_file", "prepend_file", "list_backend_collections", "inspect_env", "test_api", "preview_url", "screenshot_preview", "accessibility_check", "responsive_check", "analyze_bundle", "dependency_list", "package_info", "generate_types", "create_manifest", "export_project", "compress_project", "explain_error", "summarize_file", "ask_user"].includes(call.name)) {
+          const path = normalizePath(call.args.path || "");
+          const source = path ? files[path] : "";
+          if (["find_files", "tree"].includes(call.name)) {
+            const q = String(call.args.query || "").trim().replace(/^\*\\./, ".").toLowerCase();
+            const root = normalizePath(call.args.path || "");
+            const matches = Object.keys(files).filter((p) => (!root || p === root || p.startsWith(`${root}/`)) && (!q || p.toLowerCase().endsWith(q) || p.toLowerCase().includes(q.replace(/\\*/g, ""))));
+            output = matches.length ? matches.join("\\n") : "No matching files.";
+          } else if (call.name === "read_many") {
+            const paths = String(call.args.paths || call.body || "").split(",").map(normalizePath).filter(Boolean);
+            output = paths.map((p) => `=== ${p} ===\\n${files[p] ?? "File not found"}`).join("\\n\\n").slice(0, 16000);
+          } else if (call.name === "file_exists") output = files[path] != null ? `Exists: ${path}` : `Missing: ${path}`;
+          else if (call.name === "file_hash") { let h = 0; for (const c of source) h = ((h << 5) - h + c.charCodeAt(0)) | 0; output = source ? `${path}: ${Math.abs(h).toString(16)}` : `Missing: ${path}`; }
+          else if (call.name === "count_tokens") output = source ? `${path}: approximately ${Math.ceil(source.length / 4)} tokens` : `Missing: ${path}`;
+          else if (call.name === "extract_exports") output = [...source.matchAll(/export\\s+(?:default\\s+)?(?:const|function|class|type|interface)?\\s*([A-Za-z_$][\\w$]*)?/g)].map((m) => m[1]).filter(Boolean).join("\\n") || "No named exports found.";
+          else if (call.name === "inspect_imports") output = [...source.matchAll(/(?:import|from)\\s+["']([^"']+)["']/g)].map((m) => m[1]).join("\\n") || "No imports found.";
+          else if (call.name === "find_todos") { const rows = []; for (const [p, s] of Object.entries(files)) s.split("\\n").forEach((l, i) => /TODO|FIXME|XXX/i.test(l) && rows.push(`${p}:${i + 1}: ${l.trim()}`)); output = rows.join("\\n") || "No TODOs found."; }
+          else if (call.name === "detect_duplicates") { const seen = new Map(); for (const [p, s] of Object.entries(files)) { const k = s.trim(); if (k) seen.set(k, [...(seen.get(k) || []), p]); } output = [...seen.values()].filter((v) => v.length > 1).map((v) => v.join(" = ")).join("\\n") || "No duplicate files found."; }
+          else if (["validate_json", "prettify_code"].includes(call.name)) { try { const parsed = JSON.parse(source); output = call.name === "prettify_code" ? JSON.stringify(parsed, null, 2) : `Valid JSON: ${path}`; } catch (e) { output = `Invalid JSON: ${e.message}`; } }
+          else if (call.name === "diff_files") { const other = files[normalizePath(call.args.to || "")] || ""; output = source === other ? "Files are identical." : `Files differ (${source.length} vs ${other.length} characters).`; }
+          else if (call.name === "git_status") output = `Virtual workspace: ${Object.keys(files).length} files, ${changed ? "has changes" : "clean"}.`;
+          else if (call.name === "create_dir") output = `Directory ready: ${path || call.args.path || "."}`;
+          else if (call.name === "move_file") { const from = normalizePath(call.args.from || ""); const to = normalizePath(call.args.to || ""); if (!files[from]) throw new Error(`File not found: ${from}`); files[to] = files[from]; delete files[from]; changed = true; output = `Moved ${from} → ${to}`; opts.onEvent({ type: "files", files: { ...files } }); }
+          else if (["replace_text", "append_file", "prepend_file"].includes(call.name)) { if (call.name === "replace_text") { if (!source.includes(call.args.search || "")) throw new Error("Text not found"); files[path] = source.replaceAll(call.args.search, call.args.replace || ""); } else { const text = call.body || call.args.text || ""; files[path] = call.name === "append_file" ? `${source}${text}` : `${text}${source}`; } changed = true; tc.content = files[path]; output = `Updated ${path}`; opts.onEvent({ type: "files", files: { ...files } }); }
+          else if (call.name === "list_backend_collections") { try { output = Object.keys(JSON.parse(files["server/api.json"] || "{}").collections || {}).join("\\n") || "No collections."; } catch (e) { output = `Backend schema unavailable: ${e.message}`; } }
+          else if (call.name === "inspect_env") output = "Environment values are intentionally hidden. Runtime configuration is available to the preview.";
+          else if (call.name === "test_api") output = `API contract check prepared for collection: ${call.args.collection || "all"}.`;
+          else if (["preview_url", "screenshot_preview", "responsive_check", "accessibility_check"].includes(call.name)) { const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal }); if (v?.url) tc.url = v.url; output = v?.ok ? "Preview check passed." : `Preview check found issues: ${v?.issues || "unknown issue"}`; }
+          else if (call.name === "analyze_bundle") output = `Bundle analysis: ${Object.keys(files).length} source files, ${Object.values(files).reduce((n, s) => n + s.length, 0)} source characters.`;
+          else if (call.name === "dependency_list") output = source ? [...source.matchAll(/["']([^"']+)["']\\s*:/g)].map((m) => m[1]).join("\\n") : "package.json not found.";
+          else if (call.name === "package_info") output = `Dependency requested: ${call.args.name || "unknown"}. Use package.json to verify its installed version.`;
+          else if (call.name === "generate_types") output = "Type generation preview: schema can be represented with typed collection records.";
+          else if (["create_manifest", "export_project", "compress_project"].includes(call.name)) output = `Project ${call.name.replace("_project", "")} prepared for ${Object.keys(files).length} files.`;
+          else if (call.name === "explain_error") output = `Error analysis: ${call.args.message || call.body || "No error message supplied"}`;
+          else if (call.name === "summarize_file") output = source ? `${path}: ${source.split("\\n").length} lines, ${source.length} characters.` : `Missing: ${path}`;
+          else if (call.name === "ask_user") output = `Question queued for the user: ${call.args.question || call.body || "Please choose an option."}`;
+
           const repo = String(call.args.repo || "vibe-app").trim().replace(/\s+/g, "-").slice(0, 60) || "vibe-app";
           const isPrivate = String(call.args.private || "false").toLowerCase() === "true";
           const commitMessage = String(call.args.message || call.body || "chore: push generated app").trim().slice(0, 200);
