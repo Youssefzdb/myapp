@@ -372,6 +372,29 @@ export async function runAgentLoop(opts) {
     return { category, model: id };
   };
 
+  const generateImageCall = async (call) => {
+    const imgPrompt = String(call.args.prompt || call.body || "").trim();
+    if (!imgPrompt) throw new Error("generate_image requires a prompt");
+    const seed = Math.floor(Math.random() * 1e6);
+    const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt.slice(0, 400))}?width=640&height=360&nologo=true&seed=${seed}`;
+    let directUrl = pollinationsUrl;
+    try {
+      directUrl = await supercoolGenerateImage(imgPrompt, { signal: opts.signal });
+    } catch (e) { /* use pollinations fallback */ }
+    let embedUrl = directUrl;
+    try {
+      embedUrl = await toDataUrl(directUrl, opts.signal);
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      try { embedUrl = await toDataUrl(pollinationsUrl, opts.signal); }
+      catch (fallbackError) {
+        if (opts.signal?.aborted) throw fallbackError;
+        embedUrl = pollinationsUrl;
+      }
+    }
+    return { url: embedUrl, output: `Image URL: ${embedUrl}\\nPrompt: ${imgPrompt}` };
+  };
+
   for (let step = 0; step < maxSteps; step++) {
     opts.signal.throwIfAborted();
     const last = convo[convo.length - 1];
@@ -425,7 +448,7 @@ export async function runAgentLoop(opts) {
       if (opts.signal?.aborted) throw e;
       const transient = /502|500|503|504|مشغول|تعذّر|انقطع|timeout|network|fetch/i.test(String(e?.message || e));
       if (transient && changed) {
-        return { files, summary: `توقف التوليد مؤقتًا بسبب ازدحام النموذج، لكن الملفات المنشأة محفوظة. أرسل "أكمل" للمتابعة.`, changed };
+        return { files, summary: `توقف التوليد مؤقتًا بسبب ازدحام النموذج، لكن ��لملفات المنشأة محفوظة. أرسل "أكمل" للمتابعة.`, changed };
       }
       throw e;
     }
@@ -460,7 +483,36 @@ export async function runAgentLoop(opts) {
     const toolResults = [];
     let streamIdx = 0;
     let pendingFinish = null;
+
+    // Start every separately emitted generate_image action at once. This keeps
+    // one prompt per tool call while avoiding the old sequential bottleneck.
+    const imageCalls = calls.filter((call) => call.name === "generate_image");
+    if (imageCalls.length > 1) {
+      const imageResults = await Promise.all(imageCalls.map(async (call) => {
+        const tc = { id: uid(), name: call.name, args: call.args, status: "running" };
+        opts.onEvent({ type: "tool", call: tc });
+        const t0 = performance.now();
+        try {
+          const result = await generateImageCall(call);
+          tc.status = "done";
+          tc.url = result.url;
+          tc.output = result.output;
+          tc.durationMs = performance.now() - t0;
+          opts.onEvent({ type: "tool", call: tc });
+          return `<result name="generate_image">${result.output}</result>`;
+        } catch (e) {
+          tc.status = "error";
+          tc.output = `Error: ${e.message}`;
+          tc.durationMs = performance.now() - t0;
+          opts.onEvent({ type: "tool", call: tc });
+          return `<result name="generate_image">${tc.output}</result>`;
+        }
+      }));
+      toolResults.push(...imageResults);
+    }
+
     for (const call of calls) {
+      if (call.name === "generate_image" && imageCalls.length > 1) continue;
       const isWriteEdit = call.name === "write_file" || call.name === "edit_file";
       const reuseId = isWriteEdit && streamed[streamIdx] ? streamed[streamIdx].id : null;
       if (isWriteEdit) streamIdx++;
@@ -838,7 +890,7 @@ export async function runAgentLoop(opts) {
       let verify = { ok: true, issues: "", notes: "" };
       if (files[ENTRY]) {
         try {
-          opts.onEvent({ type: "status", text: "يل��قط لقطة للمعاينة ويتحقق ب��ريًا قبل الإنهاء…" });
+          opts.onEvent({ type: "status", text: "يل����قط لقطة للمعاينة ويتحقق ب��ريًا قبل الإنهاء…" });
           const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal });
           if (v) verify = { ok: v.ok !== false, issues: v.issues || "", notes: v.notes || "" };
         } catch (e) {
