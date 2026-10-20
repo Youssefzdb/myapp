@@ -854,15 +854,21 @@ export async function runAgentLoop(opts) {
           const matches = q
             ? catalog.filter((skill) => `${skill.name} ${skill.category} ${skill.description}`.toLowerCase().includes(q))
             : catalog;
-          if (q) {
-            const loaded = [];
-            for (const skill of matches) {
-              const full = await loadLocalSkill(skill.name);
-              if (full) { loadedSkills.add(full.name); loaded.push(full); }
-            }
-            output = loaded.length
-              ? `Skills matching "${q}" (${loaded.length}):\n${loaded.map((s) => `=== ${s.name} (${s.category}) ===\n${s.description}\n${s.content}`).join("\n\n")}`
-              : `No public Vercel Plugin skill matched "${q}".`;
+  if (q) {
+  const loaded = [];
+  const alreadyLoaded = [];
+  for (const skill of matches) {
+  if (loadedSkills.has(skill.name)) {
+  alreadyLoaded.push(skill.name);
+  continue;
+  }
+  const full = await loadLocalSkill(skill.name);
+  if (full) { loadedSkills.add(full.name); loaded.push(full); }
+  }
+  const sections = [];
+  if (loaded.length) sections.push(`Skills matching "${q}" (${loaded.length} newly loaded):\n${loaded.map((s) => `=== ${s.name} (${s.category}) ===\n${s.description}\n${s.content}`).join("\n\n")}`);
+  if (alreadyLoaded.length) sections.push(`Already loaded (not loaded again): ${alreadyLoaded.join(", ")}`);
+  output = sections.join("\n\n") || `No public Vercel Plugin skill matched "${q}".`;
           } else {
             output = `Public Vercel Plugin skill catalog (${matches.length} skills). Call skill_list with query="<skill-name>" to load full instructions:\n` +
               matches.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
