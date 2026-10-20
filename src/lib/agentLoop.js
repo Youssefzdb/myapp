@@ -41,7 +41,10 @@ replacement lines
 <action name="fetch_website" url="https://example.com"/>
 <action name="curl" url="https://api.example.com/data" method="GET" headers='{"Authorization":"Bearer ..."}' body='{"q":"hi"}'/>
 <action name="check_project"/>
-<action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
+  <action name="inspect_backend"/>
+  <action name="validate_backend"/>
+  <action name="list_routes"/>
+  <action name="push_github" repo="vibe-app" private="false" message="push generated app"/>
 <action name="finish">1-3 sentence summary for the user</action>
 
 EXAMPLE of a correct first reply (do exactly this shape, with your own files):
@@ -373,6 +376,35 @@ export async function runAgentLoop(opts) {
           if (files[p]) { delete files[p]; changed = true; output = `Deleted ${p}`; }
           else output = `Already absent: ${p}`;
           opts.onEvent({ type: "files", files: { ...files } });
+        } else if (call.name === "inspect_backend") {
+          const api = files["server/api.json"] || "";
+          const index = files["server/index.js"] || "";
+          if (!api && !index) throw new Error("No server/api.json or server/index.js found");
+          output = [api ? `server/api.json:\n${api}` : "server/api.json is missing.", index ? `server/index.js:\n${index}` : "server/index.js is missing."]
+            .join("\n\n").slice(0, 12000);
+        } else if (call.name === "validate_backend") {
+          const apiPath = "server/api.json";
+          const api = files[apiPath];
+          const problems = [];
+          if (!api) problems.push("server/api.json is missing");
+          else {
+            try {
+              const parsed = JSON.parse(api);
+              if (!parsed.collections || typeof parsed.collections !== "object") problems.push("collections must be an object");
+              for (const [name, definition] of Object.entries(parsed.collections || {})) {
+                if (!definition || typeof definition !== "object" || !definition.fields) problems.push(`Collection ${name} must define fields`);
+              }
+            } catch (e) { problems.push(`server/api.json is invalid JSON: ${e.message}`); }
+          }
+          if (!files["server/index.js"]) problems.push("server/index.js is missing");
+          output = problems.length ? problems.join("\n") : "OK — backend schema and REST server are valid.";
+        } else if (call.name === "list_routes") {
+          const sources = Object.entries(files).filter(([p]) => /(^|\/)(App|routes?|pages?)[^/]*\.(jsx?|tsx?)$/.test(p));
+          const routes = [];
+          for (const [path, source] of sources) {
+            for (const match of source.matchAll(/(?:path|to)=[\"']([^\"']+)[\"']/g)) routes.push(`${match[1]} (${path})`);
+          }
+          output = routes.length ? [...new Set(routes)].join("\n") : "No explicit routes found in App or page files.";
         } else if (call.name === "check_project") {
           const problems = checkProject(files);
           output = problems.length ? problems.join("\n") : "OK — no problems found.";

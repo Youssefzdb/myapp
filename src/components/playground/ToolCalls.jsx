@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   FilePlus, FilePen, Trash2, FolderTree, FileSearch, CheckCircle2, Flag,
   Loader2, Check, X, ChevronLeft, Copy, CheckCheck, Code2, AlertTriangle,
-  Image as ImageIcon, Search, Globe, Terminal,
+  Image as ImageIcon, Search, Globe, Terminal, Database, ShieldCheck, Route,
 } from 'lucide-react';
 import { Image as UiImage } from '@/components/ui/image';
 
@@ -13,6 +13,9 @@ const ICONS = {
   list_files: FolderTree,
   read_file: FileSearch,
   check_project: CheckCircle2,
+  inspect_backend: Database,
+  validate_backend: ShieldCheck,
+  list_routes: Route,
   finish: Flag,
   generate_image: ImageIcon,
   search_web: Search,
@@ -27,6 +30,9 @@ const LABELS = {
   list_files: 'سرد الملفات',
   read_file: 'قراءة ملف',
   check_project: 'فحص المشروع',
+  inspect_backend: 'فحص قاعدة البيانات',
+  validate_backend: 'تحقق من الـ API',
+  list_routes: 'سرد المسارات',
   finish: 'إنهاء',
   generate_image: 'توليد صورة',
   search_web: 'بحث ويب',
