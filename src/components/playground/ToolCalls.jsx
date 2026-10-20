@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   FilePlus, FilePen, Trash2, FolderTree, FileSearch, CheckCircle2, Flag,
   Loader2, Check, X, ChevronLeft, Copy, CheckCheck, Code2, AlertTriangle,
-  Image as ImageIcon, Search, Globe, Terminal, Database, ShieldCheck, Route,
+  Image as ImageIcon, Search, Globe, Terminal, Database, ShieldCheck, Route, Eye,
 } from 'lucide-react';
 import { Image as UiImage } from '@/components/ui/image';
 
