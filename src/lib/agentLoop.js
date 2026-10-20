@@ -187,20 +187,36 @@ setAgentDefault(AGENT_SYSTEM);
 const PLAIN_TEXT_PREFIX =
   "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
 
-const DEVELOPMENT_SKILLS = [
-  { name: "react_architecture", category: "development", description: "Design maintainable React components, state boundaries, hooks, and composition patterns.", content: "Use small focused components, explicit props, stable keys, controlled forms, and keep server/data concerns outside presentational components. Reuse existing components before creating new ones." },
-  { name: "typescript_quality", category: "development", description: "Improve TypeScript safety, data contracts, narrowing, and error handling.", content: "Define types for API responses and component props, avoid any, narrow unknown errors, validate external data, and keep null states explicit." },
-  { name: "api_design", category: "backend", description: "Design reliable REST APIs with validation, errors, pagination, and consistent responses.", content: "Use resource-oriented routes, validate input at the boundary, return consistent JSON errors, enforce limits, and never trust client-provided ownership or totals." },
-  { name: "database_schema", category: "data", description: "Model relational data with constraints, indexes, migrations, and ownership rules.", content: "Prefer normalized tables, foreign keys, useful indexes, not-null constraints, timestamps, and explicit ownership. Add RLS for exposed Supabase tables." },
-  { name: "supabase_security", category: "integration", description: "Build secure Supabase data access with RLS and least privilege.", content: "Enable RLS on every exposed table, scope policies by auth.uid(), use publishable keys in clients, never expose service-role secrets, and validate required columns before writes." },
-  { name: "authentication", category: "auth", description: "Implement secure email/password authentication and protected application flows.", content: "Use the existing auth provider, protect routes server-side where possible, genericize credential errors, handle unconfirmed email, and never implement mock authentication." },
-  { name: "forms_validation", category: "development", description: "Build accessible forms with validation, loading states, and safe submission.", content: "Use labels, aria-invalid, client feedback, server validation, disabled pending states, and preserve user input after recoverable errors." },
-  { name: "testing_debugging", category: "development", description: "Diagnose runtime issues and add focused tests or verification paths.", content: "Reproduce first, inspect console and network errors, make the smallest fix, then verify the affected flow and edge cases. Do not hide errors with broad catches." },
-  { name: "performance", category: "advanced", description: "Optimize rendering, loading, bundle size, and perceived performance.", content: "Measure before optimizing, avoid unnecessary renders, lazy-load heavy features, paginate large data, cache stable reads, and keep interactions responsive." },
-  { name: "accessibility", category: "ui", description: "Create keyboard-friendly, semantic, screen-reader accessible interfaces.", content: "Use semantic landmarks, visible focus, correct labels, keyboard interaction, sufficient contrast, alt text, and announce asynchronous status changes." },
-  { name: "responsive_ui", category: "ui", description: "Create mobile-first layouts that work across viewport sizes.", content: "Start with a single-column mobile layout, use flex/grid and responsive breakpoints, avoid fixed widths, test narrow and wide screens, and prevent horizontal overflow." },
-  { name: "security_review", category: "advanced", description: "Review frontend and backend changes for common security weaknesses.", content: "Treat external content as untrusted, validate paths and URLs, prevent injection, avoid leaking secrets, enforce authorization on every data operation, and use secure headers." },
-];
+const PUBLIC_SKILL_REPO = "https://api.github.com/repos/vercel/vercel-plugin";
+const PUBLIC_SKILL_RAW = "https://raw.githubusercontent.com/vercel/vercel-plugin/main/skills";
+let publicSkillCatalogPromise;
+const publicSkillHeaders = { Accept: "application/vnd.github+json", "User-Agent": "vibe-studio-skill-loader" };
+
+async function loadPublicSkillCatalog() {
+  if (!publicSkillCatalogPromise) {
+    publicSkillCatalogPromise = fetch(`${PUBLIC_SKILL_REPO}/contents/skills?ref=main`, { headers: publicSkillHeaders })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Unable to load public skill catalog (HTTP ${response.status})`);
+        const entries = await response.json();
+        return entries.filter((entry) => entry.type === "dir").map((entry) => ({
+          name: entry.name,
+          category: "vercel-plugin",
+          description: `Public Vercel Plugin skill: ${entry.name}`,
+          path: entry.path,
+        }));
+      });
+  }
+  return publicSkillCatalogPromise;
+}
+
+async function loadPublicSkill(name) {
+  const catalog = await loadPublicSkillCatalog();
+  const skill = catalog.find((entry) => entry.name === name || entry.path === `skills/${name}`);
+  if (!skill) return null;
+  const response = await fetch(`${PUBLIC_SKILL_RAW}/${encodeURIComponent(skill.name)}/SKILL.md`, { headers: publicSkillHeaders });
+  if (!response.ok) throw new Error(`Unable to load skill ${skill.name} (HTTP ${response.status})`);
+  return { ...skill, content: await response.text() };
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const OPEN_RE = /<(tool|action)\s+name="([\w-]+)"((?:\s+[\w-]+=(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
@@ -757,23 +773,22 @@ export async function runAgentLoop(opts) {
           if (r.status >= 400) throw new Error(output);
         } else if (call.name === "skill_list") {
           const q = String(call.args.query || call.body || "").trim().toLowerCase();
-          const localSkills = q
-            ? DEVELOPMENT_SKILLS.filter((s) => `${s.name} ${s.category} ${s.description} ${s.content}`.toLowerCase().includes(q))
-            : DEVELOPMENT_SKILLS;
-          let remoteSkills = [];
-          try {
-            const resp = await base44.functions.invoke("skillList", { query: q });
-            const d = resp?.data;
-            if (d && !d.error) remoteSkills = Array.isArray(d.skills) ? d.skills : [];
-          } catch { /* local development skills remain available offline */ }
-          const merged = [...localSkills, ...remoteSkills.filter((remote) => !localSkills.some((local) => local.name === remote.name))];
-          if (q && merged.length) merged.forEach((skill) => loadedSkills.add(skill.name));
-          if (!q) {
-            output = `Skill catalog (${merged.length} skills). Call skill_list again with query="<term>" to load a skill's full instructions:\n` +
-              merged.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
+          const catalog = await loadPublicSkillCatalog();
+          const matches = q
+            ? catalog.filter((skill) => `${skill.name} ${skill.category} ${skill.description}`.toLowerCase().includes(q))
+            : catalog;
+          if (q) {
+            const loaded = [];
+            for (const skill of matches) {
+              const full = await loadPublicSkill(skill.name);
+              if (full) { loadedSkills.add(full.name); loaded.push(full); }
+            }
+            output = loaded.length
+              ? `Skills matching "${q}" (${loaded.length}):\n${loaded.map((s) => `=== ${s.name} (${s.category}) ===\n${s.description}\n${s.content}`).join("\n\n")}`
+              : `No public Vercel Plugin skill matched "${q}".`;
           } else {
-            output = `Skills matching "${q}" (${merged.length}):\n` +
-              merged.map((s) => `=== ${s.title || s.name} (${s.name}, ${s.category}) ===\n${s.description}\n${s.content || ""}`).join("\n\n") || "No matching skills.";
+            output = `Public Vercel Plugin skill catalog (${matches.length} skills). Call skill_list with query="<skill-name>" to load full instructions:\n` +
+              matches.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
           }
         } else if (call.name === "verify_preview") {
           opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا…" });
