@@ -55,6 +55,8 @@ const LABELS = {
   create_dir: 'إنشاء مجلد', move_file: 'نقل ملف', replace_text: 'استبدال نص', append_file: 'إضافة إلى ملف', prepend_file: 'إضافة في بداية الملف', list_backend_collections: 'قوائم الـ Backend', inspect_env: 'فحص الإعدادات', test_api: 'اختبار API',
   preview_url: 'رابط المعاينة', screenshot_preview: 'لقطة المعاينة', accessibility_check: 'فحص الوصول', responsive_check: 'فحص التجاوب', analyze_bundle: 'تحليل الحزمة', dependency_list: 'قائمة التبعيات', package_info: 'معلومات الحزمة',
   generate_types: 'توليد الأنواع', create_manifest: 'إنشاء Manifest', export_project: 'تصدير المشروع', compress_project: 'ضغط المشروع', explain_error: 'شرح الخطأ', summarize_file: 'تلخيص الملف', ask_user: 'سؤال المستخدم',
+  supabase_init: 'تهيئة Supabase', supabase_schema: 'مخطط Supabase', supabase_auth: 'مصادقة Supabase', supabase_validate: 'تحقق Supabase', supabase_upload: 'رفع Supabase',
+  git_clone: 'استنساخ مستودع GitHub',
 };
 
 const langOf = (path = '') => {
