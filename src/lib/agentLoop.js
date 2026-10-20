@@ -635,9 +635,11 @@ export async function runAgentLoop(opts) {
   // and commonly returns 403 during imports, so a single blocked file must not
   // abort an otherwise valid repository import.
   const encodedPath = entry.path.split("/").map(encodeURIComponent).join("/");
+  const encodedRef = String(ref).split("/").map(encodeURIComponent).join("/");
   const rawUrls = [
-    `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(ref)}/${encodedPath}`,
-    `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${encodeURIComponent(ref)}/${encodedPath}`,
+    `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodedRef}/${encodedPath}`,
+    `https://cdn.jsdelivr.net/gh/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}@${encodedRef}/${encodedPath}`,
+    `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${encodedRef}/${encodedPath}`,
   ];
   let fileResponse = null;
   for (const rawUrl of rawUrls) {
