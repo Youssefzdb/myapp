@@ -7,16 +7,16 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
 // Add page imports here
-import Playground from './pages/Playground';
-import Home from './pages/Home';
-import Login from '@/pages/Login';
-import Register from '@/pages/Register';
-import ForgotPassword from '@/pages/ForgotPassword';
-import ResetPassword from '@/pages/ResetPassword';
-import ViewApp from '@/pages/ViewApp';
-import GithubCallback from '@/pages/GithubCallback';
-import Test from '@/pages/Test';
-import Worker from '@/pages/Worker';
+import Playground from './legacy-pages/Playground';
+import Home from './legacy-pages/Home';
+import Login from '@/legacy-pages/Login';
+import Register from '@/legacy-pages/Register';
+import ForgotPassword from '@/legacy-pages/ForgotPassword';
+import ResetPassword from '@/legacy-pages/ResetPassword';
+import ViewApp from '@/legacy-pages/ViewApp';
+import GithubCallback from '@/legacy-pages/GithubCallback';
+import Test from '@/legacy-pages/Test';
+import Worker from '@/legacy-pages/Worker';
 
 
 const AuthenticatedApp = () => {

@@ -6,7 +6,7 @@ import TopBar from '@/components/playground/TopBar';
 import ChatPanel from '@/components/playground/ChatPanel';
 import PreviewPanel from '@/components/playground/PreviewPanel';
 import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
-import { runAgentLoop } from '@/lib/agentLoop';
+import { runAgentLoop } from '@/lib/agentClient';
 import { analyzeImages, extractImageUrls } from '@/lib/vision';
 import { extractFiles, ENTRY } from '@/lib/files';
 import { saveLocalCode, readLocalCode, isLocalCodeUri } from '@/lib/localCode';
