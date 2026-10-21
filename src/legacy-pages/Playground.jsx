@@ -5,7 +5,7 @@ import { base44 } from '@/api/base44Client';
 import TopBar from '@/components/playground/TopBar';
 import ChatPanel from '@/components/playground/ChatPanel';
 import PreviewPanel from '@/components/playground/PreviewPanel';
-import { fetchModelCatalog, loadConfirmedModels } from '@/lib/opencode';
+import { fetchModelCatalog, loadConfirmedModels, REQUIRED_MODELS } from '@/lib/opencode';
 import { runAgentLoop } from '@/lib/agentClient';
 import { analyzeImages, extractImageUrls } from '@/lib/vision';
 import { extractFiles, ENTRY } from '@/lib/files';
@@ -158,8 +158,10 @@ export default function Playground() {
         available.push({ id: row.model, name: meta?.name ?? row.model });
       }
     }
-    available.sort((a, b) => Number(b.id === 'beam-free') - Number(a.id === 'beam-free'));
-    return available;
+  const liveById = new Map(available.map((item) => [item.id, item]));
+  const required = REQUIRED_MODELS.map((item) => liveById.get(item.id) ?? item);
+  const extras = available.filter((item) => !REQUIRED_MODELS.some((requiredModel) => requiredModel.id === item.id));
+  return [...required, ...extras].sort((a, b) => Number(b.id === 'beam-free') - Number(a.id === 'beam-free'));
   };
 
   // Stable backend namespace for the live preview REST runtime:
