@@ -444,8 +444,7 @@ export async function runAgentLoop(opts) {
     opts.onEvent({ type: "route", category, model: stepModel, label });
     opts.onEvent({ type: "status", text: `${label} · ${thinking}` });
     const reasoningId = uid();
-    const streamed = [];
-    let statusCleared = false;
+  let statusCleared = false;
     const clearStatus = () => {
       if (!statusCleared) { statusCleared = true; opts.onEvent({ type: "status", text: null }); }
     };
@@ -466,23 +465,12 @@ export async function runAgentLoop(opts) {
           const cleaned = /^no reasoning available\.?$/i.test((text || "").trim()) ? "" : text;
           opts.onEvent({ type: "thought", id: reasoningId, text: cleaned });
         },
-        onAnswer: (text) => {
-          clearStatus();
-          const opens = [...text.matchAll(/<(tool|action)\s+name="([\w_]+)"([^>]*)>/g)];
-          opens.forEach((m, i) => {
-            if (m[2] !== "write_file" && m[2] !== "edit_file") return;
-            const path = /path="([^"]*)"/.exec(m[3] ?? "")?.[1] ?? "";
-            if (!streamed[i]) streamed[i] = { id: uid(), name: m[2], path };
-            const s = streamed[i];
-            const start = m.index + m[0].length;
-            const rest = text.slice(start);
-            if (/<\/(?:action|tool|[\w-]+:parameter|parameter)>/.test(rest)) return;
-            opts.onEvent({
-              type: "tool",
-              call: { id: s.id, name: s.name, args: { path }, status: "running", live: text.slice(start).replace(/^\n/, "") },
-            });
-          });
-        },
+  onAnswer: () => {
+  // Tool cards are emitted by the executor with a stable id. Do not create
+  // provisional cards while the model streams XML; repeated answer chunks
+  // otherwise leave orphaned "running" file cards after execution completes.
+  clearStatus();
+  },
       });
       res = await Promise.race([
         streamRequest,
@@ -546,7 +534,6 @@ export async function runAgentLoop(opts) {
     const toolResults = [];
     const actionKeysThisTurn = new Set();
     const skillRequestsThisTurn = new Set();
-    let streamIdx = 0;
     let pendingFinish = null;
 
     // Enforce the first-action gate before any parallel work can start.
@@ -602,9 +589,7 @@ export async function runAgentLoop(opts) {
       }
       const isWriteEdit = call.name === "write_file" || call.name === "edit_file";
       const isMutation = isWriteEdit || call.name === "delete_file" || call.name.startsWith("supabase_");
-      const reuseId = isWriteEdit && streamed[streamIdx] ? streamed[streamIdx].id : null;
-      if (isWriteEdit) streamIdx++;
-      const tc = { id: reuseId ?? uid(), name: call.name, args: call.args, status: "running" };
+  const tc = { id: uid(), name: call.name, args: call.args, status: "running" };
       const t0 = performance.now();
       opts.onEvent({ type: "tool", call: tc });
       let output = "";
