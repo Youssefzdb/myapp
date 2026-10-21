@@ -24,22 +24,36 @@ import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
 import { summarizeProjectMap } from "./projectMap";
 import { getPrompt, setAgentDefault } from "./systemPrompts";
 import { supercoolGenerateImage, supercoolChat } from "./supercoolTools";
-import { readFileSync } from "node:fs";
 
-const skillText = (name) => readFileSync(new URL(`../skills/${name}`, import.meta.url), "utf8");
-const deployToVercelSkill = skillText("deploy-to-vercel.md");
-const vercelCliSkill = skillText("vercel-cli-with-tokens.md");
-const vercelCompositionSkill = skillText("vercel-composition-patterns.md");
-const vercelOptimizeSkill = skillText("vercel-optimize.md");
-const vercelReactBestPracticesSkill = skillText("vercel-react-best-practices.md");
-const vercelReactNativeSkill = skillText("vercel-react-native-skills.md");
-const vercelViewTransitionsSkill = skillText("vercel-react-view-transitions.md");
-const webDesignGuidelinesSkill = skillText("web-design-guidelines.md");
-const webDesignGuidelinesCommand = skillText("web-design-guidelines.command.md");
-const writingGuidelinesSkill = skillText("writing-guidelines.md");
-const supabaseSkill = skillText("supabase.md");
+export const AGENT_SYSTEM = `You are an AI coding agent working in a virtual workspace.
 
-export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. Follow the Vercel sandbox operating model: inspect first, use the plain-text <action> protocol implemented by this host for every mutation, load only relevant local Vercel Plugin skills through skill_list before implementation, apply their returned instructions, validate the result, and report only actions that actually completed. Your job: build a COMPLETE, production-quality REACT WEBSITE — a real, navigable, responsive web app in React + TypeScript + Tailwind (FRONTEND in src/) backed by a declarative REST BACKEND in server/. Think "website" first: multiple pages/routes, a coherent layout with navbar + footer, real content sections, working navigation, forms and interactivity — not a single placeholder screen. Frontend files (8-25 focused): src/App.tsx (sets up routes via react-router or simple state-based pages), src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
+Use only the plain-text action protocol. Every response must contain one short sentence followed by one or more action tags, then stop and wait for results.
+
+Tool format:
+<action name="read_file" path="src/App.jsx"/>
+<action name="write_file" path="new/file.txt">complete content</action>
+<action name="edit_file" path="existing/file.txt">
+[SEARCH]
+exact existing text
+[REPLACE]
+replacement text
+[/REPLACE]
+</action>
+<action name="delete_file" path="old/file.txt"/>
+<action name="finish">short summary</action>
+
+Rules:
+- Inspect before changing files.
+- Use write_file only for a path that does not exist.
+- Use edit_file for every existing file; never recreate an existing file.
+- After each action, use its result to decide the next action.
+- Do not review or inspect images visually. Trust successful image-generation URLs and continue.
+- Do not call screenshot_preview, responsive_check, or visual-review actions.
+- Finish as soon as the requested work and source-level checks are complete.
+
+`;
+
+const LEGACY_AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. Follow the Vercel sandbox operating model: inspect first, use the plain-text <action> protocol implemented by this host for every mutation, load only relevant local Vercel Plugin skills through skill_list before implementation, apply their returned instructions, validate the result, and report only actions that actually completed. Your job: build a COMPLETE, production-quality REACT WEBSITE — a real, navigable, responsive web app in React + TypeScript + Tailwind (FRONTEND in src/) backed by a declarative REST BACKEND in server/. Think "website" first: multiple pages/routes, a coherent layout with navbar + footer, real content sections, working navigation, forms and interactivity — not a single placeholder screen. Frontend files (8-25 focused): src/App.tsx (sets up routes via react-router or simple state-based pages), src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
 MANDATORY SKILL GATE — THE FIRST AI ACTION IS ALWAYS WEB DESIGN:
 - This is an absolute execution rule: the FIRST action in the AI's first reply for EVERY platform, website, app, UI, or code-generation request MUST be exactly one query-specific skill_list action with query="web-design-guidelines". Do not list files, inspect the project, ask questions, write code, generate images, load another skill, or perform any other action before it.
@@ -225,32 +239,10 @@ setAgentDefault(AGENT_SYSTEM);
 const PLAIN_TEXT_PREFIX =
   "This is a standalone text answer request. There is NO repository or workspace on your side. DO NOT call any native tools, inspect directories, or write files yourself. Answer directly in your final message with plain-text <action> tags; the host executes them.";
 
-const LOCAL_SKILL_NAMES = [
-  "deploy-to-vercel",
-  "vercel-cli-with-tokens",
-  "vercel-composition-patterns",
-  "vercel-optimize",
-  "vercel-react-best-practices",
-  "vercel-react-native-skills",
-  "vercel-react-view-transitions",
-  "web-design-guidelines",
-  "writing-guidelines",
-  "supabase",
-];
+const LOCAL_SKILL_NAMES = [];
 let localSkillCatalogPromise;
 
-const LOCAL_SKILL_CONTENT = {
-  "deploy-to-vercel": deployToVercelSkill,
-  "vercel-cli-with-tokens": vercelCliSkill,
-  "vercel-composition-patterns": vercelCompositionSkill,
-  "vercel-optimize": vercelOptimizeSkill,
-  "vercel-react-best-practices": vercelReactBestPracticesSkill,
-  "vercel-react-native-skills": vercelReactNativeSkill,
-  "vercel-react-view-transitions": vercelViewTransitionsSkill,
-  "web-design-guidelines": `${webDesignGuidelinesSkill}\n\n--- COMMAND.md ---\n\n${webDesignGuidelinesCommand}`,
-  "writing-guidelines": writingGuidelinesSkill,
-  supabase: supabaseSkill,
-};
+const LOCAL_SKILL_CONTENT = Object.freeze({});
 
 async function loadLocalSkillCatalog() {
   if (!localSkillCatalogPromise) {
@@ -263,15 +255,8 @@ async function loadLocalSkillCatalog() {
   return localSkillCatalogPromise;
 }
 
-async function loadLocalSkill(name) {
-  const catalog = await loadLocalSkillCatalog();
-  const skill = catalog.find((entry) => entry.name === name);
-  if (!skill) return null;
-  const content = LOCAL_SKILL_CONTENT[skill.name];
-  if (typeof content !== "string" || !content.trim()) {
-    throw new Error(`Unable to load local skill ${skill.name}: bundled content is missing`);
-  }
-  return { ...skill, content };
+async function loadLocalSkill() {
+  return null;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
