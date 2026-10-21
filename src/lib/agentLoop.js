@@ -483,16 +483,31 @@ export async function runAgentLoop(opts) {
       res = await Promise.race([
         streamRequest,
         new Promise((_, reject) => {
-          const timer = setTimeout(() => reject(new Error("Model response timed out while thinking.")), 90000);
+          const timer = setTimeout(() => reject(new Error("Model response timed out while thinking.")), 20000);
           streamRequest.finally(() => clearTimeout(timer)).catch(() => {});
         }),
       ]);
     } catch (e) {
       clearStatus();
       if (opts.signal?.aborted) throw e;
-      const transient = /502|500|503|504|مشغول|تعذّر|انقطع|timeout|network|fetch/i.test(String(e?.message || e));
+      const errorMessage = String(e?.message || e);
+      const timedOut = /timed out while thinking|timeout/i.test(errorMessage);
+      const transient = /502|500|503|504|مشغول|تعذّر|انقطع|timeout|network|fetch/i.test(errorMessage);
+      if (timedOut) {
+        // Keep the recovery instruction in the model context only. It must not
+        // become a visible chat message or make the user restart the request.
+        convo.push({
+          role: "user",
+          content: "INTERNAL RECOVERY: The previous model response exceeded the 20-second thinking limit. Continue the same task immediately from the current files. Do not explain the timeout, do not restart completed work, and emit the next valid action or finish.",
+        });
+        continue;
+      }
       if (transient && changed) {
-        return { files, summary: `توقف التوليد مؤقتًا بسبب ازدحام النموذج، لكن ��لملفات المنشأة محفوظة. أرسل "أكمل" للمتابعة.`, changed };
+        convo.push({
+          role: "user",
+          content: "INTERNAL RECOVERY: A transient model/network error occurred. Continue the same task from the current files; do not restart or repeat completed actions.",
+        });
+        continue;
       }
       throw e;
     }
