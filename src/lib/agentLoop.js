@@ -383,7 +383,11 @@ export async function runAgentLoop(opts) {
   // skill loaded in an earlier turn must not be requested again.
   const loadedSkills = new Set();
   const historyText = opts.history.map((entry) => String(entry.content || "")).join("\n");
-  if (/web-design-guidelines|Skills matching "web-design-guidelines"/i.test(historyText)) loadedSkills.add("web-design-guidelines");
+  for (const skillName of LOCAL_SKILL_NAMES) {
+    if (new RegExp(`Skills matching [\\\"']${skillName}[\\\"']|query=[\\\"']${skillName}[\\\"']`, "i").test(historyText)) {
+      loadedSkills.add(skillName);
+    }
+  }
   let firstActionChecked = loadedSkills.has("web-design-guidelines");
   const projectMap = summarizeProjectMap(files, opts.prompt || opts.task || "");
   const listing = Object.keys(files).length
@@ -541,6 +545,7 @@ export async function runAgentLoop(opts) {
 
     const toolResults = [];
     const actionKeysThisTurn = new Set();
+    const skillRequestsThisTurn = new Set();
     let streamIdx = 0;
     let pendingFinish = null;
 
@@ -588,6 +593,13 @@ export async function runAgentLoop(opts) {
         }
       }
       if (call.name === "generate_image" && imageCalls.length > 1) continue;
+      if (call.name === "skill_list") {
+        const query = String(call.args.query || "").trim().toLowerCase();
+        if (!query || skillRequestsThisTurn.has(query) || loadedSkills.has(query)) {
+          continue;
+        }
+        skillRequestsThisTurn.add(query);
+      }
       const isWriteEdit = call.name === "write_file" || call.name === "edit_file";
       const isMutation = isWriteEdit || call.name === "delete_file" || call.name.startsWith("supabase_");
       const reuseId = isWriteEdit && streamed[streamIdx] ? streamed[streamIdx].id : null;
