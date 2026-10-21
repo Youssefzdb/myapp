@@ -9,10 +9,16 @@ import { buildProjectFiles } from "./preview";
 import { capturePreviewErrors } from "./screenshot";
 
 const REVIEW_TIMEOUT_MS = 20_000;
+const THINKING_DELAY_MS = 1_200;
 const withReviewTimeout = (promise, fallback) => Promise.race([
   promise,
   new Promise((resolve) => setTimeout(() => resolve(fallback), REVIEW_TIMEOUT_MS)),
 ]);
+const pauseForThinking = (signal, ms = THINKING_DELAY_MS) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(signal.reason || new Error("Aborted"));
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason || new Error("Aborted")); }, { once: true });
+});
 import { proxyFetch, proxyFetchText } from "./proxyFetch";
 import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
 import { summarizeProjectMap } from "./projectMap";
@@ -452,6 +458,9 @@ export async function runAgentLoop(opts) {
     const thinking = step === 0 ? "يفكّر…" : "يراجع النتائج ويفكّر…";
     opts.onEvent({ type: "route", category, model: stepModel, label });
     opts.onEvent({ type: "status", text: `${label} · ${thinking}` });
+    // Give the agent a short bounded planning window before each model call.
+    // This keeps the UI responsive without allowing unbounded deliberation.
+    await pauseForThinking(opts.signal);
     const reasoningId = uid();
   let statusCleared = false;
     const clearStatus = () => {
@@ -1038,6 +1047,8 @@ export async function runAgentLoop(opts) {
     }
     convo.push({ role: "assistant", content: `${thought}\n${compressed}` });
     convo.push({ role: "user", content: `Tool results:\n${toolResults.join("\n")}${cutNote}\n\nContinue with the next action, or call finish when done.` });
+    // Reassess the updated workspace before the next model turn.
+    await pauseForThinking(opts.signal);
   }
 
   opts.onEvent({ type: "status", text: null });
