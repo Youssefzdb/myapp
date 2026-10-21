@@ -193,7 +193,7 @@ Operating protocol — follow this on every request:
 Rules:
 - You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
   - Write complete, working code: no placeholders, TODOs or ellipses. Every visible action must work (state, CRUD, forms, filters, navigation via state). Persist data via the REST API (/api/:collection) which the platform serves live; use localStorage only for UI preferences.
-  - File update rule: before changing an existing file, use edit_file with an exact SEARCH/REPLACE block. Never recreate an existing file with write_file; write_file is only for genuinely new files. If an edit fails because the search text is stale, read the file again and retry with the current exact text. Multiple edits to the same existing file are allowed and must not be treated as duplicates.
+  - ABSOLUTE FILE UPDATE RULE: write_file is ONLY for a path that is not already in the project map. Once any file has been created or exists in the project, EVERY later change MUST use edit_file with an exact SEARCH/REPLACE block. Never emit write_file for an existing path, even if replacing the entire file. If an edit fails because the search text is stale, read the file again and retry with the current exact text. Multiple edit_file actions on the same existing file are valid and must never be treated as duplicate creates.
 - src/App.tsx must export default function App(). Import local files via relative paths or the @/ alias (= src/). Never import a file you have not written. No circular imports.
 - FRONTEND packages (src/*): react, lucide-react (only real icon names) and browser-safe npm packages from esm.sh. No Node APIs or server-only code in src/. Styling: Tailwind utilities only. Images: ONLY URLs returned by the generate_image tool — never unsplash, placeholder, pollinations, emoji stand-ins, or empty src.
 - BACKEND (server/*): a DECLARATIVE REST API. server/api.json declares "collections" (each an object of field-name → type) and an optional "seed" object mapping collection → array of initial docs. server/index.js is a real Express app that auto-serves standard REST over those collections (GET/POST /api/:c, GET/PUT/DELETE /api/:c/:id) so the repo runs locally with \`node server/index.js\`. The LIVE in-app preview AND the published link run the SAME /api/:c REST automatically on the platform — the host intercepts fetch('/api/...') and serves it from a real persistent store. No eval, no running server needed in the preview.
@@ -632,14 +632,24 @@ export async function runAgentLoop(opts) {
             throw new Error("Load the relevant skill first with <action name=\"skill_list\" query=\"supabase\"/> before writing Supabase files.");
           }
           if (!p) throw new Error(`Invalid path: ${call.args.path}`);
-          // Preserve the model's exact payload. Adding a newline here used to corrupt
-          // binary-like HTML payloads and made index.html writes appear unreliable.
+          // Existing files must be updated through the edit path. Convert a
+          // mistaken write request into one exact full-file replacement so the
+          // model cannot lose work or fail on a duplicate create.
           const content = typeof call.body === "string" ? call.body : "";
           if (!content.trim() && !/\.empty$/i.test(p)) throw new Error(`Empty file content for ${p}`);
-          files[p] = content;
-          changed = true;
-          tc.content = content;
-          output = `Wrote ${p} (${files[p].split("\n").length} lines)`;
+          if (Object.prototype.hasOwnProperty.call(files, p)) {
+            const replacement = applyEdit(files[p], `<<<<<<< SEARCH\n${files[p]}\n=======\n${content}\n>>>>>>> REPLACE`);
+            if (replacement.failed) throw new Error(`Existing file ${p} must be edited; full-file edit could not be applied.`);
+            files[p] = replacement.out;
+            changed = true;
+            tc.content = `<<<<<<< SEARCH\n(existing ${p})\n=======\n${content}\n>>>>>>> REPLACE`;
+            output = `Edited existing file ${p} instead of recreating it (${replacement.applied} replacement(s))`;
+          } else {
+            files[p] = content;
+            changed = true;
+            tc.content = content;
+            output = `Wrote new file ${p} (${files[p].split("\n").length} lines)`;
+          }
           opts.onEvent({ type: "files", files: { ...files } });
         } else if (call.name === "edit_file") {
           const p = normalizePath(call.args.path || "");
