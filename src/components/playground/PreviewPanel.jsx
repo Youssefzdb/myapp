@@ -24,6 +24,7 @@ export default function PreviewPanel({
 }) {
   const [copied, setCopied] = useState(false);
   const [showTree, setShowTree] = useState(true);
+  const [previewLoading, setPreviewLoading] = useState(true);
 
   // Virtual route navigation (address bar + back/forward) for the preview iframe
   const iframeRef = useRef(null);
@@ -42,7 +43,8 @@ export default function PreviewPanel({
   // Reset navigation whenever the preview content is rebuilt
   useEffect(() => {
     setHistory(['/']); setIdx(0); setRouteInput('/');
-  }, [previewDoc]);
+    setPreviewLoading(Boolean(fileCount));
+  }, [previewDoc, fileCount]);
 
   useEffect(() => {
     const onMsg = (e) => {
@@ -242,14 +244,21 @@ export default function PreviewPanel({
                 </div>
               )}
             </div>
-            <div className="flex-1 min-h-0 flex items-start justify-center p-3 overflow-auto bg-muted/30">
+            <div className="relative flex-1 min-h-0 flex items-start justify-center p-3 overflow-auto bg-muted/30">
+              {previewLoading && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-muted/30 pointer-events-none">
+                  <span className="rounded-md border bg-background/90 px-3 py-2 text-sm text-muted-foreground shadow-sm">جاري تحميل المعاينة…</span>
+                </div>
+              )}
               <div style={{ width: DEVICES[device], maxWidth: '100%' }} className="h-full mx-auto">
                 <iframe
                   ref={iframeRef}
                   title="preview"
                   srcDoc={previewDoc}
+                  onLoad={() => setPreviewLoading(false)}
+                  onError={() => setPreviewLoading(false)}
                   className="w-full h-full rounded-lg border bg-white shadow-sm"
-                  sandbox="allow-scripts allow-popups"
+                  sandbox="allow-scripts allow-same-origin allow-popups"
                 />
               </div>
             </div>
