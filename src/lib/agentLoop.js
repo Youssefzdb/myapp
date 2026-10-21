@@ -12,17 +12,17 @@ import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
 import { summarizeProjectMap } from "./projectMap";
 import { getPrompt, setAgentDefault } from "./systemPrompts";
 import { supercoolGenerateImage, supercoolChat } from "./supercoolTools";
-import deployToVercelSkill from "../../public/skills/deploy-to-vercel.md?raw";
-import vercelCliSkill from "../../public/skills/vercel-cli-with-tokens.md?raw";
-import vercelCompositionSkill from "../../public/skills/vercel-composition-patterns.md?raw";
-import vercelOptimizeSkill from "../../public/skills/vercel-optimize.md?raw";
-import vercelReactBestPracticesSkill from "../../public/skills/vercel-react-best-practices.md?raw";
-import vercelReactNativeSkill from "../../public/skills/vercel-react-native-skills.md?raw";
-import vercelViewTransitionsSkill from "../../public/skills/vercel-react-view-transitions.md?raw";
-import webDesignGuidelinesSkill from "../../public/skills/web-design-guidelines.md?raw";
-import webDesignGuidelinesCommand from "../../public/skills/web-design-guidelines.command.md?raw";
-import writingGuidelinesSkill from "../../public/skills/writing-guidelines.md?raw";
-import supabaseSkill from "../../public/skills/supabase.md?raw";
+import deployToVercelSkill from "../skills/deploy-to-vercel.md?raw";
+import vercelCliSkill from "../skills/vercel-cli-with-tokens.md?raw";
+import vercelCompositionSkill from "../skills/vercel-composition-patterns.md?raw";
+import vercelOptimizeSkill from "../skills/vercel-optimize.md?raw";
+import vercelReactBestPracticesSkill from "../skills/vercel-react-best-practices.md?raw";
+import vercelReactNativeSkill from "../skills/vercel-react-native-skills.md?raw";
+import vercelViewTransitionsSkill from "../skills/vercel-react-view-transitions.md?raw";
+import webDesignGuidelinesSkill from "../skills/web-design-guidelines.md?raw";
+import webDesignGuidelinesCommand from "../skills/web-design-guidelines.command.md?raw";
+import writingGuidelinesSkill from "../skills/writing-guidelines.md?raw";
+import supabaseSkill from "../skills/supabase.md?raw";
 
 export const AGENT_SYSTEM = `You are an autonomous senior full-stack engineer working inside a virtual project file system. Follow the Vercel sandbox operating model: inspect first, use the plain-text <action> protocol implemented by this host for every mutation, load only relevant local Vercel Plugin skills through skill_list before implementation, apply their returned instructions, validate the result, and report only actions that actually completed. Your job: build a COMPLETE, production-quality REACT WEBSITE — a real, navigable, responsive web app in React + TypeScript + Tailwind (FRONTEND in src/) backed by a declarative REST BACKEND in server/. Think "website" first: multiple pages/routes, a coherent layout with navbar + footer, real content sections, working navigation, forms and interactivity — not a single placeholder screen. Frontend files (8-25 focused): src/App.tsx (sets up routes via react-router or simple state-based pages), src/components/*, src/components/ui/*, src/features/* or src/pages/*, src/hooks/*, src/lib/*, src/data/*, src/types.ts. Backend files: server/api.json (declarative data model + seed), server/index.js (a real Express app that auto-serves REST over the same model for local/GitHub use), server/package.json, and a root README.md with run instructions.
 
@@ -618,7 +618,6 @@ export async function runAgentLoop(opts) {
           if (!loadedSkills.has("web-design-guidelines")) {
             throw new Error('Load skill_list with query="web-design-guidelines" before modifying project files.');
           }
-          completedActions.add(actionKey);
         }
         if (call.name === "list_files") {
           output = Object.keys(files).map((p) => `${p} (${files[p].split("\n").length} lines)`).join("\n") || "(empty)";
