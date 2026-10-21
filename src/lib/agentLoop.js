@@ -6,7 +6,13 @@
 import { streamChat } from "./opencode";
 import { ENTRY, extractFiles, duplicateExports, exportMismatches, missingImports, normalizePath, undefinedComponents, emptyFiles } from "./files";
 import { buildProjectFiles } from "./preview";
-import { captureAndVerifyPreview, capturePreviewErrors } from "./screenshot";
+import { capturePreviewErrors } from "./screenshot";
+
+const REVIEW_TIMEOUT_MS = 20_000;
+const withReviewTimeout = (promise, fallback) => Promise.race([
+  promise,
+  new Promise((resolve) => setTimeout(() => resolve(fallback), REVIEW_TIMEOUT_MS)),
+]);
 import { proxyFetch, proxyFetchText } from "./proxyFetch";
 import { classifyStep, pickModel, CATEGORY_LABELS } from "./modelRouter";
 import { summarizeProjectMap } from "./projectMap";
@@ -176,7 +182,7 @@ Extra tools (the host executes them for real and returns results):
   - Skill selection rules — call skill_list with the matching query BEFORE implementation, not after: deploy-to-vercel when the user asks to deploy, publish, go live, or create a Vercel deployment; vercel-cli-with-tokens when managing Vercel project settings, domains, environment variables, routing, logs, or feature flags through the CLI; vercel-composition-patterns when designing or refactoring compound components, render props, context providers, or scalable React component APIs; vercel-optimize when the user asks about Vercel cost, billing, runtime performance, Core Web Vitals, slow routes, caching, build minutes, function invocations, or data transfer; vercel-react-best-practices when writing, reviewing, or refactoring React/Next.js code, pages, data fetching, bundle size, or performance; vercel-react-native-skills when working with React Native or Expo, native modules, mobile rendering, or list performance; vercel-react-view-transitions when the user requests page/route transitions, shared-element animations, enter/exit animations, list reordering, or View Transition API work; web-design-guidelines when reviewing or improving UI accessibility, responsive behavior, interaction design, or web interface quality; writing-guidelines when reviewing or editing documentation, user-facing prose, copy, voice, tone, or writing style.
   - If a request matches more than one rule, load every directly relevant skill once, then apply all returned instructions. Do not load unrelated skills, do not call skill_list repeatedly for the same skill in one task, and do not claim a skill was applied unless its instructions were returned successfully.
   - Supabase backend actions: supabase_init creates the safe client/config scaffold, supabase_schema writes a reviewed SQL migration with RLS, supabase_auth creates email/password auth helpers, supabase_validate checks the generated Supabase files, and supabase_upload prepares the migration for deployment. Never write service-role keys into generated frontend files and never claim a migration was deployed unless the upload action returns success.
-- verify_preview: captures a real screenshot of the LIVE rendered preview and runs a FREE visual sanity check (no credits): blank page, error screen, or near-empty render. Returns ok plus any issues found. Call it proactively when you suspect the render is broken. A visual check ALSO runs automatically right before finish — if it finds issues, fix them with write_file/edit_file and call finish again.
+  - verify_preview, screenshot_preview, and responsive_check: the connected text model cannot see screenshots or generated images. Do not call these actions for visual judgment. If one is emitted, the host skips it immediately and continues. No visual check runs before finish.
   Use these tools when they genuinely improve the result; don't call them for trivial apps.
 
 WHEN THE PROMPT STARTS WITH "[REFERENCE IMAGES — pixel-accurate clone target]": the user attached a screenshot to clone. Treat the analysis spec as ground truth and reproduce the layout at 99-100% fidelity — match the exact section order, visual hierarchy, color palette (use the exact hex values given), spacing/rhythm, typography sizes & weights, corner radii, shadows, and component composition. Use generate_image for any hero/section imagery the spec describes, matching its style and palette. Use the spec's copy verbatim. Build the full working app — interactive, responsive, and RTL if the source is RTL — never a static screenshot. Recreate EVERY visible region; do not simplify or omit sections. The goal is a near-identical clone.
@@ -191,7 +197,7 @@ Operating protocol — follow this on every request:
 - For debugging, reproduce or inspect evidence first, identify the smallest root cause, fix it, then run the narrowest relevant validation. Do not hide failures with broad catches or claim success without evidence.
 - Use skills deliberately: call skill_list only for a relevant topic, load its instructions before implementing unfamiliar functionality, and apply the loaded guidance rather than merely listing it.
 - Batch independent reads/actions when possible, but keep dependent actions sequential. After each tool result, reassess and continue until the requested outcome is actually complete.
-- Finish only after check_project and any relevant preview/accessibility checks pass. If blocked, state the exact blocker and what remains unverified.
+  - Finish after source-level checks such as check_project when relevant. Never block finish on screenshot, image, responsive, or visual-review checks; those are skipped for text-only models.
 
 Rules:
 - You will receive real tool results after each reply. Read files before editing ones you have not seen. Prefer edit_file for small changes to existing files.
@@ -966,19 +972,15 @@ export async function runAgentLoop(opts) {
             output = `Public Vercel Plugin skill catalog (${matches.length} skills). Call skill_list with query="<skill-name>" to load full instructions:\n` +
               matches.map((s) => `- ${s.name} [${s.category}]: ${s.description}`).join("\n");
           }
-        } else if (call.name === "verify_preview") {
-          opts.onEvent({ type: "status", text: "يلتقط لقطة للمعاينة ويتحقق بصريًا…" });
-          const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal });
+        } else if (call.name === "verify_preview" || call.name === "screenshot_preview" || call.name === "responsive_check") {
+          // Text models cannot see screenshots or generated images. Never enter
+          // a visual-review loop; return immediately and let the agent continue.
+          output = "Visual review skipped: this model cannot inspect screenshots or generated images. Continue with source-level checks and do not call this action again.";
           opts.onEvent({ type: "status", text: null });
-          if (!v) throw new Error("screenshot failed");
-          if (v.url) tc.url = v.url;
-          output = v.ok
-            ? `Visual check PASSED. ${v.notes || ""}`.trim()
-            : `Visual check FAILED. Fix these:\n${v.issues || ""}`;
         } else if (call.name === "finish") {
           output = call.body || "Done.";
           toolResults.push(`finish: ${output}`);
-          tc.status = "done"; tc.output = "جارٍ التحقق البصري قبل الإنهاء…"; tc.durationMs = performance.now() - t0;
+          tc.status = "done"; tc.output = output; tc.durationMs = performance.now() - t0;
           opts.onEvent({ type: "tool", call: tc });
           pendingFinish = output;
           break;
@@ -997,31 +999,22 @@ export async function runAgentLoop(opts) {
     }
 
     if (pendingFinish !== null) {
-      let verify = { ok: true, issues: "", notes: "" };
-      if (files[ENTRY]) {
-        try {
-          opts.onEvent({ type: "status", text: "يل����قط لقطة للمعاينة ويتحقق ب��ريًا قبل الإنهاء…" });
-          const v = await captureAndVerifyPreview(files, 1024, { task: opts.task, referenceUrls: opts.referenceImages, signal: opts.signal });
-          if (v) verify = { ok: v.ok !== false, issues: v.issues || "", notes: v.notes || "" };
-        } catch (e) {
-          verify = { ok: true, issues: "", notes: "تعذّر التحقق البصري: " + String(e?.message || e) };
-        }
-        opts.onEvent({ type: "status", text: null });
-      }
-      if (verify.ok || verifyCount >= MAX_VERIFY) {
-        return { files, summary: pendingFinish, changed };
-      }
-      verifyCount++;
-      convo.push({ role: "assistant", content: `${thought}\n<action name="finish">${pendingFinish}</action>` });
-      convo.push({ role: "user", content: `A visual screenshot check of the live preview ran before finishing and found these issues:\n${verify.issues}\n\nFix EVERY issue with write_file/edit_file, then call finish again. Actually change the code — do not just restate the summary.` });
-      continue;
+      // Finishing is authoritative. Do not run a screenshot/image review here:
+      // the connected text models cannot inspect it and this used to trap the
+      // agent in an endless "reviewing results" state. Runtime/source checks
+      // below remain bounded and cannot block completion indefinitely.
+      opts.onEvent({ type: "status", text: null });
+      return { files, summary: pendingFinish, changed };
     }
 
     // Auto-detect runtime/console errors from a hidden render of the current
     // files and feed them back to the AI so it can self-correct (internal).
     if (changed && Object.keys(files).length && files[ENTRY]) {
       try {
-        const errs = await capturePreviewErrors(files, { signal: opts.signal });
+        const errs = await withReviewTimeout(
+          capturePreviewErrors(files, { signal: opts.signal }),
+          [],
+        );
         if (errs.length) {
           const listed = errs.slice(0, 8).map((e) => "- " + String(e).slice(0, 240)).join("\n");
           toolResults.push(`<runtime-errors>The live preview threw these errors when rendering the current files. Fix them before calling finish:\n${listed}</runtime-errors>`);
