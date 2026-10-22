@@ -1,6 +1,7 @@
 import confirmedModels from "./confirmed-models.json";
 
-export const OPENCODE_BASE = "https://superagent-2b61d5b9.base44.app/functions";
+// Browser requests stay same-origin; the Next.js route owns the upstream URL and proxying.
+export const OPENCODE_BASE = "/api/opencode";
 export const DEFAULT_MODEL = "beam-free";
 
 // These models are part of the product surface and must remain visible even
