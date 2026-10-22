@@ -18,6 +18,16 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const checkAppState = async () => {
+    // The standalone preview does not provide Base44 app credentials. Avoid
+    // sending SDK requests to the local Next.js origin in that mode.
+    if (!import.meta.env.VITE_BASE44_APP_ID) {
+      setIsLoadingPublicSettings(false);
+      setIsLoadingAuth(false);
+      setAuthChecked(true);
+      setIsAuthenticated(false);
+      return;
+    }
+
     try {
       setIsLoadingPublicSettings(true);
       setAuthError(null);
