@@ -23,7 +23,10 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
       
       try {
-        const publicSettings = await base44.app.getPublicSettings();
+        const publicSettings = await Promise.race([
+          base44.app.getPublicSettings(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Public settings timeout')), 3000)),
+        ]);
         setAppPublicSettings(publicSettings);
         
         // If we got the app public settings successfully, check if user is authenticated
