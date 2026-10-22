@@ -1,3 +1,5 @@
+import '../index.css'
+
 export const metadata = {
   title: 'Vibe Studio',
   description: 'Server-side AI workspace',
